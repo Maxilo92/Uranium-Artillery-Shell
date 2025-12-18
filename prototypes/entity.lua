@@ -1,0 +1,400 @@
+local projectile = table.deepcopy(data.raw["artillery-projectile"]["artillery-projectile"])
+projectile.name = "uranium-artillery-projectile"
+
+-- Add green glow to projectile (Tracer effect)
+projectile.light = {intensity = 0.8, size = 15, color = {r=0.2, g=1, b=0.2}}
+if projectile.animation then
+    projectile.animation.tint = {r=0.5, g=1, b=0.5}
+end
+
+-- Define the radiation cloud (based on poison cloud)
+local cloud = table.deepcopy(data.raw["smoke-with-trigger"]["poison-cloud"])
+cloud.name = "uranium-radiation-cloud"
+cloud.duration = 1800 -- 30 seconds
+cloud.fade_away_duration = 120
+cloud.spread_duration = 20
+cloud.color = {r=0.2, g=1, b=0.2, a=0.3} -- Greenish cloud, more transparent
+cloud.affected_by_wind = false -- Stop it from moving
+cloud.show_when_smoke_off = true
+-- cloud.animation = nil -- Invisible cloud
+
+-- Define a green fire trail for the sticker
+local trail = table.deepcopy(data.raw["fire"]["fire-flame"])
+trail.name = "uranium-radiation-trail"
+trail.damage_per_tick = {amount = 0, type = "fire"} -- No extra damage, just visual
+trail.maximum_damage_multiplier = 1
+trail.initial_lifetime = 60
+trail.lifetime_increase_by = 0
+trail.lifetime_increase_cooldown = 100
+trail.limit_one_per_tile = false
+trail.spread_delay = 100
+trail.spread_delay_deviation = 100
+trail.maximum_spread_count = 100
+trail.emissions_per_second = {} -- No pollution
+trail.smoke = {
+    {
+        name = "uranium-explosion-smoke", -- Reuse our green smoke
+        frequency = 15, -- Frequent smoke
+        position = {0, 0},
+        starting_vertical_speed = 0.0,
+        starting_frame_deviation = 60
+    }
+}
+-- Remove fire graphics, keep only smoke
+trail.on_fuel_effect = nil
+trail.working_sound = nil
+trail.pictures = {
+    {
+        filename = "__core__/graphics/empty.png",
+        priority = "extra-high",
+        width = 1,
+        height = 1,
+        frame_count = 1,
+        axially_symmetrical = false,
+        direction_count = 1,
+        shift = {0, 0}
+    }
+}
+
+-- Define the radiation sticker (persistent damage)
+local sticker = {
+    type = "sticker",
+    name = "uranium-radiation-sticker",
+    flags = {"not-on-map"},
+    duration_in_ticks = 4294967295, -- Effectively infinite (until death or cured)
+    target_movement_modifier = 0.8,
+    damage_per_tick = { amount = 35 / 60, type = "poison" }, -- 35 damage per second (deadly even with armor)
+    spread_fire_entity = "uranium-radiation-trail", -- Leave a trail
+    fire_spread_cooldown = 30, -- Every 0.5 seconds
+    fire_spread_radius = 0.1,
+    stickers = {
+        {
+            filename = "__core__/graphics/shoot-cursor-green.png", -- Simple green marker
+            priority = "extra-high",
+            width = 258,
+            height = 183,
+            shift = {0, 0},
+            tint = {r=0.5, g=1, b=0.5, a=0.5},
+            scale = 0.2,
+            flags = {"no-crop"}
+        }
+    }
+}
+-- Define a glowing crater effect (using fire entity for light)
+local glow = table.deepcopy(data.raw["fire"]["fire-flame"])
+glow.name = "uranium-radiation-glow"
+glow.damage_per_tick = {amount = 0, type = "fire"}
+glow.maximum_damage_multiplier = 1
+glow.initial_lifetime = 1800 -- 30 seconds
+glow.lifetime_increase_by = 0
+glow.lifetime_increase_cooldown = 100
+glow.limit_one_per_tile = true
+glow.spread_delay = 0
+glow.spread_delay_deviation = 0
+glow.maximum_spread_count = 0 -- Don't spread
+glow.emissions_per_second = {}
+-- Green light
+glow.light = {intensity = 0.8, size = 20, color = {r=0.1, g=1, b=0.1}}
+-- Remove smoke and fire graphics, we just want the light
+glow.smoke = nil
+glow.on_fuel_effect = nil
+glow.pictures = nil 
+glow.working_sound = nil
+-- Add a subtle ground patch if possible, or just rely on light
+-- Using a simple empty animation to avoid errors if pictures are required
+glow.pictures = {
+    {
+        filename = "__core__/graphics/empty.png",
+        priority = "extra-high",
+        width = 1,
+        height = 1,
+        frame_count = 1,
+        axially_symmetrical = false,
+        direction_count = 1,
+        shift = {0, 0}
+    }
+}
+
+data:extend({sticker, trail, glow})
+
+-- Helper to recursively tint animations
+local function recursive_tint(anim, tint)
+    if not anim then return end
+    if anim.layers then
+        for _, layer in pairs(anim.layers) do
+            recursive_tint(layer, tint)
+        end
+    elseif anim.filenames or anim.stripes or anim.filename then
+        -- It's a single animation definition
+        anim.tint = tint
+        if anim.hr_version then
+            recursive_tint(anim.hr_version, tint)
+        end
+    elseif type(anim) == "table" then
+        -- Check if it's a list of variations
+        local is_list = false
+        for k, _ in pairs(anim) do
+            if type(k) == "number" then
+                is_list = true
+                break
+            end
+        end
+        
+        if is_list then
+            for _, variation in pairs(anim) do
+                if type(variation) == "table" then
+                    recursive_tint(variation, tint)
+                end
+            end
+        else
+             -- Fallback for other structures
+            anim.tint = tint
+            if anim.hr_version then
+                recursive_tint(anim.hr_version, tint)
+            end
+        end
+    end
+end
+
+-- Helper to recursively scale animations
+local function recursive_scale(anim, scale)
+    if not anim then return end
+    if anim.layers then
+        for _, layer in pairs(anim.layers) do
+            recursive_scale(layer, scale)
+        end
+    elseif anim.filenames or anim.stripes or anim.filename then
+        anim.scale = (anim.scale or 1) * scale
+        if anim.hr_version then
+            recursive_scale(anim.hr_version, scale)
+        end
+    elseif type(anim) == "table" then
+         -- Check if it's a list of variations
+        local is_list = false
+        for k, _ in pairs(anim) do
+            if type(k) == "number" then
+                is_list = true
+                break
+            end
+        end
+        
+        if is_list then
+            for _, variation in pairs(anim) do
+                if type(variation) == "table" then
+                    recursive_scale(variation, scale)
+                end
+            end
+        else
+            anim.scale = (anim.scale or 1) * scale
+            if anim.hr_version then
+                recursive_scale(anim.hr_version, scale)
+            end
+        end
+    end
+end
+
+-- Tint the cloud animation
+if cloud.animation then
+   -- Replace with generic smoke to avoid blue tint from poison-cloud
+   -- Use "smoke" which is white/grey, so tinting works well
+   cloud.animation = table.deepcopy(data.raw["trivial-smoke"]["smoke"].animation)
+   recursive_scale(cloud.animation, 8) -- Make it large (radius ~6)
+   recursive_tint(cloud.animation, {r=0.1, g=1, b=0.1, a=0.5})
+   cloud.animation.animation_speed = 0.03 -- Slow motion smoke to last full duration
+end
+cloud.animation = nil -- Invisible cloud, but we keep the code above in case we want it back later
+
+-- Cloud damage action
+cloud.action = {
+    type = "direct",
+    action_delivery = {
+        type = "instant",
+        target_effects = {
+            {
+                type = "nested-result",
+                action = {
+                    type = "area",
+                    radius = 12, -- Radiation radius (larger than explosion)
+                    action_delivery = {
+                        type = "instant",
+                        target_effects = {
+                            {
+                                type = "create-sticker",
+                                sticker = "uranium-radiation-sticker"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+cloud.action_frequency = 30 -- Apply sticker every 0.5 seconds (30 ticks)
+
+-- Define a green smoke for the explosion
+-- Use "smoke" instead of "smoke-fast" for a fluffier, less triangular look
+local smoke = table.deepcopy(data.raw["trivial-smoke"]["smoke"]) 
+smoke.name = "uranium-explosion-smoke"
+smoke.color = {r=0.2, g=1, b=0.2, a=0.5}
+if smoke.animation then
+    recursive_scale(smoke.animation, 2.5) -- Make it bigger
+    recursive_tint(smoke.animation, {r=0.2, g=1, b=0.2, a=0.5})
+end
+
+-- Define the explosion visual
+local source_name = "nuke-explosion"
+if not data.raw["explosion"][source_name] then
+    source_name = "atomic-bomb-explosion"
+end
+if not data.raw["explosion"][source_name] then
+    source_name = "big-artillery-explosion"
+end
+
+local explosion = table.deepcopy(data.raw["explosion"][source_name])
+explosion.name = "uranium-artillery-explosion"
+
+-- Add green light flash to explosion
+explosion.light = {intensity = 1, size = 50, color = {r=0.2, g=1, b=0.2}}
+
+-- Tint the explosion animations green
+-- Removed tinting as per request (explosion itself should not be green)
+-- if explosion.animations then
+--    recursive_tint(explosion.animations, {r=0.2, g=1, b=0.2, a=1})
+-- end
+
+-- Scale down the explosion to look "weaker"
+local function scale_anim(anim)
+    if anim.scale then
+        anim.scale = anim.scale * 0.7
+    else
+        anim.scale = 0.7
+    end
+    -- Fix flags if they are a string (Factorio 2.0 requires a list)
+    if anim.flags and type(anim.flags) == "string" then
+        anim.flags = { anim.flags }
+    end
+    if anim.hr_version then
+        scale_anim(anim.hr_version)
+    end
+end
+
+if (source_name == "nuke-explosion" or source_name == "atomic-bomb-explosion") and explosion.animations then
+    if explosion.animations.layers then
+        for _, layer in pairs(explosion.animations.layers) do
+            scale_anim(layer)
+        end
+    elseif explosion.animations.filename or explosion.animations.stripes or explosion.animations.filenames then
+        scale_anim(explosion.animations)
+    else
+        -- Assume it's a list of variations
+        for _, anim in pairs(explosion.animations) do
+            if type(anim) == "table" then
+                scale_anim(anim)
+            end
+        end
+    end
+end
+
+-- Replace blue smoke with green smoke in explosion effects
+if explosion.created_effect then
+    local effects = explosion.created_effect
+    if effects.type then effects = {effects} end
+    for _, effect in pairs(effects) do
+        -- Handle create-entity
+        if effect.type == "create-entity" then
+             if effect.entity_name and (string.find(effect.entity_name, "smoke") or string.find(effect.entity_name, "cloud")) then
+                effect.entity_name = "uranium-explosion-smoke"
+             end
+        end
+        -- Handle create-trivial-smoke
+        if effect.type == "create-trivial-smoke" then
+             if effect.smoke_name and (string.find(effect.smoke_name, "smoke") or string.find(effect.smoke_name, "cloud")) then
+                effect.smoke_name = "uranium-explosion-smoke"
+             end
+        end
+    end
+end
+
+-- Use nuclear explosion sound
+if data.raw["explosion"]["atomic-bomb-explosion"] then
+    explosion.sound = table.deepcopy(data.raw["explosion"]["atomic-bomb-explosion"].sound)
+end
+
+-- Update projectile action to use new effects
+projectile.action = {
+    type = "direct",
+    action_delivery = {
+        type = "instant",
+        target_effects = {
+            {
+                type = "create-entity",
+                entity_name = "uranium-artillery-explosion"
+            },
+            {
+                type = "create-entity",
+                entity_name = "uranium-radiation-cloud",
+                offset_deviation = {{-0.5, -0.5}, {0.5, 0.5}}
+            },
+            {
+                type = "create-entity",
+                entity_name = "uranium-radiation-glow", -- The glowing crater effect
+                offset_deviation = {{-0.5, -0.5}, {0.5, 0.5}}
+            },
+            {
+                type = "set-tile",
+                tile_name = "nuclear-ground",
+                radius = 6.0,
+                apply_projection = false,
+                tile_collision_mask = { layers = { ["water_tile"] = true } }
+            },
+            {
+                type = "nested-result",
+                action = {
+                    type = "area",
+                    radius = 6.0, -- Reduced radius (was 8.0)
+                    action_delivery = {
+                        type = "instant",
+                        target_effects = {
+                            {
+                                type = "damage",
+                                damage = {amount = 1000, type = "physical"} -- Reduced damage (was 1000)
+                            },
+                            {
+                                type = "damage",
+                                damage = {amount = 600, type = "explosion"} -- Reduced damage (was 1000)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+data:extend({projectile, cloud, explosion, smoke})
+
+-- Define mutated spawners
+local function create_mutated_spawner(original_name, new_name)
+    local spawner = table.deepcopy(data.raw["unit-spawner"][original_name])
+    if not spawner then return end
+    spawner.name = new_name
+    spawner.tint = {r=0.2, g=1, b=0.2, a=1} -- Give it a green tint so we know it's mutated
+    -- Make it spawn stronger units earlier
+    if spawner.result_units then
+        for _, unit_entry in pairs(spawner.result_units) do
+            -- unit_entry is {"unit-name", {{evolution, weight}, ...}}
+            if unit_entry[2] then
+                for _, spawn_point in pairs(unit_entry[2]) do
+                    -- spawn_point is {evolution, weight}
+                    if spawn_point[1] then
+                        spawn_point[1] = math.max(0, spawn_point[1] - 0.3)
+                    end
+                end
+            end
+        end
+    end
+    data:extend({spawner})
+end
+
+create_mutated_spawner("biter-spawner", "mutated-biter-spawner")
+create_mutated_spawner("spitter-spawner", "mutated-spitter-spawner")

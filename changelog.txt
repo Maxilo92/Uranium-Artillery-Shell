@@ -1,0 +1,34 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.1.1
+Date: 18. 12. 2025
+Features:
+  - Added "RadAway" (Uranium Antidote) to cure radiation sickness.
+  - Added permanent radiation effect (sticker) that lasts until cured or death.
+  - Added glowing crater effect at impact site.
+  - Added green radioactive trails to infected units.
+  - Added mutation mechanic: Irradiated nests now mutate into green versions that spawn stronger units earlier.
+  - Added percentage-based damage to irradiated units (5% max HP/sec) to counter high-HP enemies.
+  - Changed explosion visual to a scaled-down atomic bomb explosion (un-tinted).
+  - Changed radiation cloud to be invisible but marked by a glowing crater.
+  - Added nuclear ground tile generation on impact.
+Balancing:
+  - Increased radiation damage to be deadly even for players in power armor (35 damage/sec).
+  - Reduced explosion radius from 8.0 to 6.0.
+  - Reduced total explosion damage from 2000 to 1200.
+Bugfixes:
+  - Fixed crash when atomic-bomb-explosion is not found.
+  - Fixed tile_collision_mask and flags format for Factorio 2.0.
+  - Fixed various loading errors (missing sounds, property tree formats).
+  - Fixed crash in control.lua when handling entity death.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.1.0
+Date: 18. 12. 2025
+Features:
+  - Added Uranium Artillery Shell item.
+  - Added Uranium Artillery Shell recipe using spent fuel rods and U-238.
+  - Added Uranium Artillery Projectile with increased damage and explosion radius.
+  - Added radioactive fallout cloud effect on impact.
+  - Added green light tracer to projectile.
+  - Added nuclear explosion sound and green flash to explosion.
+  - Added research technology to unlock the shell.
