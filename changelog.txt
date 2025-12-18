@@ -1,24 +1,30 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.7
+Date: 2025-12-18
+  Bugfixes:
+    - Fixed crash due to missing startup settings.
+
+---------------------------------------------------------------------------------------------------
 Version: 0.1.6
-Date: 18.12.2025
+Date: 2025-12-18
   Features:
     - Added mod thumbnail.
 
 ---------------------------------------------------------------------------------------------------
 Version: 0.1.5
-Date: 18.12.2025
+Date: 2025-12-18
   Features:
     - Added contagion mechanic: Mutated units now infect other units (and players) with radiation on hit.
 
 ---------------------------------------------------------------------------------------------------
 Version: 0.1.4
-Date: 18.12.2025
+Date: 2025-12-18
   Features:
     - Mutated spawners now exclusively spawn mutated units.
 
 ---------------------------------------------------------------------------------------------------
 Version: 0.1.3
-Date: 18.12.2025
+Date: 2025-12-18
   Features:
     - Mutated units (Biters, Spitters, Worms) are now "unstable":
     - They suffer constant decay damage (negative healing).
@@ -28,13 +34,13 @@ Date: 18.12.2025
 
 ---------------------------------------------------------------------------------------------------
 Version: 0.1.2
-Date: 18.12.2025
+Date: 2025-12-18
   Features:
     - Added mutated worms (Small, Medium, Big, Behemoth).
 
 ---------------------------------------------------------------------------------------------------
 Version: 0.1.1
-Date: 18.12.2025
+Date: 2025-12-18
   Features:
     - Added "RadAway" (Uranium Antidote) to cure radiation sickness.
     - Added permanent radiation effect (sticker) that lasts until cured or death.
@@ -57,7 +63,7 @@ Date: 18.12.2025
 
 ---------------------------------------------------------------------------------------------------
 Version: 0.1.0
-Date: 18.12.2025
+Date: 2025-12-18
   Features:
     - Added Uranium Artillery Shell item.
     - Added Uranium Artillery Shell recipe using spent fuel rods and U-238.
@@ -66,12 +72,3 @@ Date: 18.12.2025
     - Added green light tracer to projectile.
     - Added nuclear explosion sound and green flash to explosion.
     - Added research technology to unlock the shell.
-Version: 0.1.7
-Date: 2025-12-18
-  Features:
-    - Added mod settings to configure radiation damage, explosion damage, and radius.
-    - Added setting to toggle player radiation damage.
-    - Added setting to toggle alien mutation.
-  Changes:
-    - Updated description and locale files.
-
