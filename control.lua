@@ -39,26 +39,64 @@ script.on_event(defines.events.on_entity_damaged, function(event)
 
     -- Handle percentage damage for units (biters/spitters) to overcome regeneration/high HP
     -- Only run this check once per second per entity to save performance
-    if entity.type == "unit" then
-        if event.damage_type.name == "poison" and (game.tick % 60 == 0) then
-            if entity.stickers then
-                local has_sticker = false
-                for _, sticker in pairs(entity.stickers) do
-                    if sticker.valid and sticker.name == "uranium-radiation-sticker" then
-                        has_sticker = true
-                        break
+    if entity.type == "unit" or entity.type == "turret" then
+        local has_sticker = false
+        if entity.stickers then
+            for _, sticker in pairs(entity.stickers) do
+                if sticker.valid and sticker.name == "uranium-radiation-sticker" then
+                    has_sticker = true
+                    break
+                end
+            end
+        end
+        
+        if has_sticker then
+            -- Mutation Logic
+            local mutation_setting = settings.global["uranium-mutation-enabled"]
+            if mutation_setting and mutation_setting.value and not string.find(entity.name, "^mutated%-") then
+                local new_name = "mutated-" .. entity.name
+                if prototypes.entity[new_name] then
+                    local surface = entity.surface
+                    local position = entity.position
+                    local force = entity.force
+                    local health_ratio = entity.health / entity.max_health
+                    
+                    local new_entity = surface.create_entity{
+                        name = new_name,
+                        position = position,
+                        force = force,
+                        fast_replace = true,
+                        spill = false,
+                        create_build_effect_smoke = false
+                    }
+                    if new_entity then
+                        new_entity.health = new_entity.max_health * health_ratio
+                        -- Re-apply sticker
+                        surface.create_entity{
+                            name = "uranium-radiation-sticker",
+                            position = position,
+                            target = new_entity
+                        }
+                        
+                        -- Ensure the old entity is removed to prevent duplication
+                        if entity.valid then
+                            entity.destroy()
+                        end
+                        
+                        return -- Entity replaced
                     end
                 end
-                
-                if has_sticker then
-                    -- Deal percentage of max health as extra damage
-                    local damage_percent = settings.global["uranium-radiation-damage-percent"].value / 100
-                    local damage_amount = entity.max_health * damage_percent
-                    if entity.health > damage_amount then
-                        entity.health = entity.health - damage_amount
-                    else
-                        entity.die(entity.force)
-                    end
+            end
+
+            -- Percentage Damage Logic
+            if event.damage_type.name == "poison" and (game.tick % 60 == 0) then
+                -- Deal percentage of max health as extra damage
+                local damage_percent = settings.global["uranium-radiation-damage-percent"].value / 100
+                local damage_amount = entity.max_health * damage_percent
+                if entity.health > damage_amount then
+                    entity.health = entity.health - damage_amount
+                else
+                    entity.die(entity.force)
                 end
             end
         end
@@ -113,7 +151,7 @@ script.on_event(defines.events.on_entity_damaged, function(event)
             -- Mutate it
             local new_name = "mutated-" .. entity.name
             -- Check if the mutated version exists
-            if game.entity_prototypes[new_name] then
+            if prototypes.entity[new_name] then
                 local surface = entity.surface
                 local position = entity.position
                 local force = entity.force

@@ -1,4 +1,13 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.8
+Date: 2025-12-18
+  Changes:
+    - Made radiation trail clouds invisible.
+  Bugfixes:
+    - Fixed crash caused by deprecated 'game.entity_prototypes' in Factorio 2.0.
+    - Fixed issue where mutating aliens would duplicate infinitely.
+
+---------------------------------------------------------------------------------------------------
 Version: 0.1.7
 Date: 2025-12-18
   Bugfixes:

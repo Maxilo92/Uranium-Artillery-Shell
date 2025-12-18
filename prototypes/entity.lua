@@ -107,15 +107,7 @@ trail.spread_delay = 100
 trail.spread_delay_deviation = 100
 trail.maximum_spread_count = 100
 trail.emissions_per_second = {} -- No pollution
-trail.smoke = {
-    {
-        name = "uranium-explosion-smoke", -- Reuse our green smoke
-        frequency = 15, -- Frequent smoke
-        position = {0, 0},
-        starting_vertical_speed = 0.0,
-        starting_frame_deviation = 60
-    }
-}
+trail.smoke = nil -- Invisible trail
 -- Remove fire graphics, keep only smoke
 trail.on_fuel_effect = nil
 trail.working_sound = nil
