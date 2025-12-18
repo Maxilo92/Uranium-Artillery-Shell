@@ -1,3 +1,79 @@
+-- Helper to recursively tint animations
+local function recursive_tint(anim, tint)
+    if not anim then return end
+    if anim.layers then
+        for _, layer in pairs(anim.layers) do
+            recursive_tint(layer, tint)
+        end
+    elseif anim.filenames or anim.stripes or anim.filename then
+        -- It's a single animation definition
+        anim.tint = tint
+        if anim.hr_version then
+            recursive_tint(anim.hr_version, tint)
+        end
+    elseif type(anim) == "table" then
+        -- Check if it's a list of variations
+        local is_list = false
+        for k, _ in pairs(anim) do
+            if type(k) == "number" then
+                is_list = true
+                break
+            end
+        end
+        
+        if is_list then
+            for _, variation in pairs(anim) do
+                if type(variation) == "table" then
+                    recursive_tint(variation, tint)
+                end
+            end
+        else
+             -- Fallback for other structures
+            anim.tint = tint
+            if anim.hr_version then
+                recursive_tint(anim.hr_version, tint)
+            end
+        end
+    end
+end
+
+-- Helper to recursively scale animations
+local function recursive_scale(anim, scale)
+    if not anim then return end
+    if anim.layers then
+        for _, layer in pairs(anim.layers) do
+            recursive_scale(layer, scale)
+        end
+    elseif anim.filenames or anim.stripes or anim.filename then
+        anim.scale = (anim.scale or 1) * scale
+        if anim.hr_version then
+            recursive_scale(anim.hr_version, scale)
+        end
+    elseif type(anim) == "table" then
+         -- Check if it's a list of variations
+        local is_list = false
+        for k, _ in pairs(anim) do
+            if type(k) == "number" then
+                is_list = true
+                break
+            end
+        end
+        
+        if is_list then
+            for _, variation in pairs(anim) do
+                if type(variation) == "table" then
+                    recursive_scale(variation, scale)
+                end
+            end
+        else
+            anim.scale = (anim.scale or 1) * scale
+            if anim.hr_version then
+                recursive_scale(anim.hr_version, scale)
+            end
+        end
+    end
+end
+
 local projectile = table.deepcopy(data.raw["artillery-projectile"]["artillery-projectile"])
 projectile.name = "uranium-artillery-projectile"
 
@@ -116,82 +192,6 @@ glow.pictures = {
 }
 
 data:extend({sticker, trail, glow})
-
--- Helper to recursively tint animations
-local function recursive_tint(anim, tint)
-    if not anim then return end
-    if anim.layers then
-        for _, layer in pairs(anim.layers) do
-            recursive_tint(layer, tint)
-        end
-    elseif anim.filenames or anim.stripes or anim.filename then
-        -- It's a single animation definition
-        anim.tint = tint
-        if anim.hr_version then
-            recursive_tint(anim.hr_version, tint)
-        end
-    elseif type(anim) == "table" then
-        -- Check if it's a list of variations
-        local is_list = false
-        for k, _ in pairs(anim) do
-            if type(k) == "number" then
-                is_list = true
-                break
-            end
-        end
-        
-        if is_list then
-            for _, variation in pairs(anim) do
-                if type(variation) == "table" then
-                    recursive_tint(variation, tint)
-                end
-            end
-        else
-             -- Fallback for other structures
-            anim.tint = tint
-            if anim.hr_version then
-                recursive_tint(anim.hr_version, tint)
-            end
-        end
-    end
-end
-
--- Helper to recursively scale animations
-local function recursive_scale(anim, scale)
-    if not anim then return end
-    if anim.layers then
-        for _, layer in pairs(anim.layers) do
-            recursive_scale(layer, scale)
-        end
-    elseif anim.filenames or anim.stripes or anim.filename then
-        anim.scale = (anim.scale or 1) * scale
-        if anim.hr_version then
-            recursive_scale(anim.hr_version, scale)
-        end
-    elseif type(anim) == "table" then
-         -- Check if it's a list of variations
-        local is_list = false
-        for k, _ in pairs(anim) do
-            if type(k) == "number" then
-                is_list = true
-                break
-            end
-        end
-        
-        if is_list then
-            for _, variation in pairs(anim) do
-                if type(variation) == "table" then
-                    recursive_scale(variation, scale)
-                end
-            end
-        else
-            anim.scale = (anim.scale or 1) * scale
-            if anim.hr_version then
-                recursive_scale(anim.hr_version, scale)
-            end
-        end
-    end
-end
 
 -- Tint the cloud animation
 if cloud.animation then
