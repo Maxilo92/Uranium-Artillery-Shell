@@ -6,4 +6,6 @@ Features:
   - Added Uranium Artillery Shell recipe using spent fuel rods and U-238.
   - Added Uranium Artillery Projectile with increased damage and explosion radius.
   - Added radioactive fallout cloud effect on impact.
+  - Added green light tracer to projectile.
+  - Added nuclear explosion sound and green flash to explosion.
   - Added research technology to unlock the shell.
