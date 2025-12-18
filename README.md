@@ -25,6 +25,16 @@
 *   **Mutated Spawners**: Green-tinted nests that spawn stronger units (Big/Behemoth) much earlier than normal evolution would allow.
 *   **Strategy**: Use with caution! While deadly to units, irradiating nests can make the local fauna much more dangerous.
 
+## Settings
+
+You can configure the following settings in the Mod Settings menu:
+
+*   **Enable Alien Mutation**: Toggle whether radioactive nests mutate into stronger variants.
+*   **Radiation Damage (%)**: Percentage of max health dealt as damage per second to irradiated units.
+*   **Enable Player Radiation Damage**: Toggle whether players take radiation damage.
+*   **Artillery Shell Damage**: Total damage of the explosion (Startup setting).
+*   **Artillery Explosion Radius**: Radius of the explosion and radiation cloud (Startup setting).
+
 ## Recipes
 
 ### Uranium Artillery Shell

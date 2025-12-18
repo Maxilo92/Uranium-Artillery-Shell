@@ -23,13 +23,17 @@ script.on_event(defines.events.on_entity_damaged, function(event)
     -- Infection mechanic: Mutated units infect others on contact (attack)
     local cause = event.cause
     if cause and cause.valid and cause.type == "unit" and string.find(cause.name, "^mutated%-") then
-        -- If the attacker is a mutated unit, infect the target
-        if (entity.type == "unit" or entity.type == "character") and not string.find(entity.name, "^mutated%-") then
-             entity.surface.create_entity{
-                name = "uranium-radiation-sticker",
-                position = entity.position,
-                target = entity
-            }
+        -- Check setting
+        local mutation_setting = settings.global["uranium-mutation-enabled"]
+        if mutation_setting and mutation_setting.value then
+            -- If the attacker is a mutated unit, infect the target
+            if (entity.type == "unit" or entity.type == "character") and not string.find(entity.name, "^mutated%-") then
+                 entity.surface.create_entity{
+                    name = "uranium-radiation-sticker",
+                    position = entity.position,
+                    target = entity
+                }
+            end
         end
     end
 
@@ -47,9 +51,9 @@ script.on_event(defines.events.on_entity_damaged, function(event)
                 end
                 
                 if has_sticker then
-                    -- Deal 8% of max health as extra damage
-                    -- This ensures even Behemoths die in ~12.5 seconds
-                    local damage_amount = entity.max_health * 0.08
+                    -- Deal percentage of max health as extra damage
+                    local damage_percent = settings.global["uranium-radiation-damage-percent"].value / 100
+                    local damage_amount = entity.max_health * damage_percent
                     if entity.health > damage_amount then
                         entity.health = entity.health - damage_amount
                     else
@@ -61,6 +65,8 @@ script.on_event(defines.events.on_entity_damaged, function(event)
 
     -- Handle percentage damage for players (5% per second)
     elseif entity.type == "character" then
+        if not settings.global["uranium-player-damage-enabled"].value then return end
+        
         if event.damage_type.name == "poison" and (game.tick % 60 == 0) then
             if entity.stickers then
                 local has_sticker = false
@@ -97,6 +103,10 @@ script.on_event(defines.events.on_entity_damaged, function(event)
         end
 
         if is_irradiated then
+            -- Check setting
+            local mutation_setting = settings.global["uranium-mutation-enabled"]
+            if mutation_setting and not mutation_setting.value then return end
+
             -- Check if it's already mutated
             if string.find(entity.name, "mutated") then return end
 

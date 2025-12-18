@@ -343,7 +343,7 @@ projectile.action = {
             {
                 type = "set-tile",
                 tile_name = "nuclear-ground",
-                radius = 6.0,
+                radius = settings.startup["uranium-artillery-radius"].value,
                 apply_projection = false,
                 tile_collision_mask = { layers = { ["water_tile"] = true } }
             },
@@ -351,17 +351,17 @@ projectile.action = {
                 type = "nested-result",
                 action = {
                     type = "area",
-                    radius = 6.0, -- Reduced radius (was 8.0)
+                    radius = settings.startup["uranium-artillery-radius"].value, -- Configurable radius
                     action_delivery = {
                         type = "instant",
                         target_effects = {
                             {
                                 type = "damage",
-                                damage = {amount = 600, type = "physical"} -- Balanced: 600 + 600 = 1200 (Vanilla is 1000)
+                                damage = {amount = settings.startup["uranium-artillery-damage"].value / 2, type = "physical"} -- Split damage
                             },
                             {
                                 type = "damage",
-                                damage = {amount = 600, type = "explosion"}
+                                damage = {amount = settings.startup["uranium-artillery-damage"].value / 2, type = "explosion"}
                             }
                         }
                     }

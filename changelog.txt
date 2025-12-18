@@ -66,3 +66,12 @@ Date: 18.12.2025
     - Added green light tracer to projectile.
     - Added nuclear explosion sound and green flash to explosion.
     - Added research technology to unlock the shell.
+Version: 0.1.7
+Date: 2025-12-18
+  Features:
+    - Added mod settings to configure radiation damage, explosion damage, and radius.
+    - Added setting to toggle player radiation damage.
+    - Added setting to toggle alien mutation.
+  Changes:
+    - Updated description and locale files.
+
