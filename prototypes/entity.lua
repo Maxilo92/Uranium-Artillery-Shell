@@ -139,7 +139,7 @@ local sticker = {
     flags = {"not-on-map"},
     duration_in_ticks = 4294967295, -- Effectively infinite (until death or cured)
     target_movement_modifier = 0.8,
-    damage_per_tick = { amount = 35 / 60, type = "poison" }, -- 35 damage per second (deadly even with armor)
+    damage_per_tick = { amount = 1 / 60, type = "poison" }, -- Minimal damage to trigger events, real damage is in control.lua
     spread_fire_entity = "uranium-radiation-trail", -- Leave a trail
     fire_spread_cooldown = 30, -- Every 0.5 seconds
     fire_spread_radius = 0.1,
@@ -357,11 +357,11 @@ projectile.action = {
                         target_effects = {
                             {
                                 type = "damage",
-                                damage = {amount = 1000, type = "physical"} -- Reduced damage (was 1000)
+                                damage = {amount = 600, type = "physical"} -- Balanced: 600 + 600 = 1200 (Vanilla is 1000)
                             },
                             {
                                 type = "damage",
-                                damage = {amount = 600, type = "explosion"} -- Reduced damage (was 1000)
+                                damage = {amount = 600, type = "explosion"}
                             }
                         }
                     }
@@ -373,26 +373,167 @@ projectile.action = {
 
 data:extend({projectile, cloud, explosion, smoke})
 
+-- Define mutated units (Green versions)
+local unit_mapping = {}
+local units_to_mutate = {
+    "small-biter", "medium-biter", "big-biter", "behemoth-biter",
+    "small-spitter", "medium-spitter", "big-spitter", "behemoth-spitter"
+}
+
+-- Helper to buff damage
+local function buff_damage(attack_parameters, multiplier)
+    if not attack_parameters then return end
+    local ammo_type = attack_parameters.ammo_type
+    if not ammo_type then return end
+    
+    local action = ammo_type.action
+    if not action then return end
+    
+    -- Handle array of actions
+    local actions = action
+    if action.type then actions = {action} end
+    
+    for _, act in pairs(actions) do
+        if act.action_delivery then
+            local deliveries = act.action_delivery
+            if deliveries.type then deliveries = {deliveries} end
+            
+            for _, delivery in pairs(deliveries) do
+                if delivery.target_effects then
+                    local effects = delivery.target_effects
+                    if effects.type then effects = {effects} end
+                    
+                    for _, effect in pairs(effects) do
+                        if effect.type == "damage" and effect.damage then
+                            effect.damage.amount = effect.damage.amount * multiplier
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+for _, name in pairs(units_to_mutate) do
+    local unit = table.deepcopy(data.raw["unit"][name])
+    if unit then
+        unit.name = "mutated-" .. name
+        -- Tint animations green
+        if unit.run_animation then recursive_tint(unit.run_animation, {r=0.5, g=1, b=0.5}) end
+        if unit.attack_parameters and unit.attack_parameters.animation then 
+            recursive_tint(unit.attack_parameters.animation, {r=0.5, g=1, b=0.5}) 
+        end
+
+        -- Buff stats (Aggressive: Faster, stronger, but same health)
+        -- Health remains unchanged as requested
+        
+        -- Make them faster and more aggressive
+        unit.movement_speed = unit.movement_speed * 1.3 -- 30% faster
+        unit.vision_distance = unit.vision_distance * 1.5 -- See player from further away
+        
+        if unit.attack_parameters then
+            buff_damage(unit.attack_parameters, 1.5) -- Keep damage buff
+            if unit.attack_parameters.cooldown then
+                unit.attack_parameters.cooldown = unit.attack_parameters.cooldown * 0.8 -- 20% faster attack speed
+            end
+        end
+
+        -- Radiation suffering (Negative healing to simulate decay)
+        -- They are unstable and slowly dying
+        unit.healing_per_tick = -0.005 -- Lose ~0.3 HP/sec (slow decay)
+
+        -- Add resistance to poison (radiation) so they don't die instantly to the cloud
+        if not unit.resistances then unit.resistances = {} end
+        table.insert(unit.resistances, {type = "poison", percent = 90})
+
+        -- Add a light to show they are radioactive
+        unit.light = {intensity = 0.4, size = 5, color = {r=0.2, g=1, b=0.2}}
+
+        data:extend({unit})
+        unit_mapping[name] = unit.name
+    end
+end
+
+-- Define mutated worms (Turrets)
+local worms_to_mutate = {
+    "small-worm-turret", "medium-worm-turret", "big-worm-turret", "behemoth-worm-turret"
+}
+
+for _, name in pairs(worms_to_mutate) do
+    local worm = table.deepcopy(data.raw["turret"][name])
+    if worm then
+        worm.name = "mutated-" .. name
+        
+        -- Tint animations green
+        local anims_to_tint = {
+            "folded_animation", "preparing_animation", "prepared_animation", 
+            "prepared_alternative_animation", "attacking_animation", 
+            "starting_attack_animation", "ending_attack_animation", "folding_animation"
+        }
+        
+        for _, anim_name in pairs(anims_to_tint) do
+            if worm[anim_name] then
+                recursive_tint(worm[anim_name], {r=0.5, g=1, b=0.5})
+            end
+        end
+
+        -- Buff stats (Aggressive: Stronger, faster shooting, longer range)
+        -- Health remains unchanged
+        
+        if worm.attack_parameters then
+            buff_damage(worm.attack_parameters, 1.5) -- +50% Damage
+            
+            if worm.attack_parameters.cooldown then
+                worm.attack_parameters.cooldown = worm.attack_parameters.cooldown * 0.8 -- 20% faster shooting
+            end
+            
+            if worm.attack_parameters.range then
+                worm.attack_parameters.range = worm.attack_parameters.range * 1.2 -- +20% Range
+            end
+        end
+
+        -- Radiation suffering (Negative healing to simulate decay)
+        worm.healing_per_tick = -0.005 -- Lose ~0.3 HP/sec
+
+        -- Add resistance to poison (radiation)
+        if not worm.resistances then worm.resistances = {} end
+        table.insert(worm.resistances, {type = "poison", percent = 90})
+
+        -- Add a light
+        worm.light = {intensity = 0.4, size = 8, color = {r=0.2, g=1, b=0.2}}
+
+        data:extend({worm})
+        -- No mapping needed for worms as they don't spawn from spawners in the same way, 
+        -- but if we wanted to replace them via script we could.
+    end
+end
+
 -- Define mutated spawners
 local function create_mutated_spawner(original_name, new_name)
     local spawner = table.deepcopy(data.raw["unit-spawner"][original_name])
     if not spawner then return end
     spawner.name = new_name
     spawner.tint = {r=0.2, g=1, b=0.2, a=1} -- Give it a green tint so we know it's mutated
-    -- Make it spawn stronger units earlier
+    
+    -- Update spawn table to use mutated units
     if spawner.result_units then
+        local new_result_units = {}
         for _, unit_entry in pairs(spawner.result_units) do
             -- unit_entry is {"unit-name", {{evolution, weight}, ...}}
-            if unit_entry[2] then
-                for _, spawn_point in pairs(unit_entry[2]) do
-                    -- spawn_point is {evolution, weight}
-                    if spawn_point[1] then
-                        spawn_point[1] = math.max(0, spawn_point[1] - 0.3)
-                    end
-                end
+            local original_unit = unit_entry[1]
+            local spawn_points = unit_entry[2]
+            
+            if unit_mapping[original_unit] then
+                -- Use the mutated unit name
+                table.insert(new_result_units, {unit_mapping[original_unit], spawn_points})
+            else
+                -- Keep original if no mapping found (fallback)
+                table.insert(new_result_units, unit_entry)
             end
         end
+        spawner.result_units = new_result_units
     end
+    
     data:extend({spawner})
 end
 

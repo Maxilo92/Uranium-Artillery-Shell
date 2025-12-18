@@ -34,8 +34,32 @@ script.on_event(defines.events.on_entity_damaged, function(event)
                 end
                 
                 if has_sticker then
+                    -- Deal 8% of max health as extra damage
+                    -- This ensures even Behemoths die in ~12.5 seconds
+                    local damage_amount = entity.max_health * 0.08
+                    if entity.health > damage_amount then
+                        entity.health = entity.health - damage_amount
+                    else
+                        entity.die(entity.force)
+                    end
+                end
+            end
+        end
+
+    -- Handle percentage damage for players (5% per second)
+    elseif entity.type == "character" then
+        if event.damage_type.name == "poison" and (game.tick % 60 == 0) then
+            if entity.stickers then
+                local has_sticker = false
+                for _, sticker in pairs(entity.stickers) do
+                    if sticker.valid and sticker.name == "uranium-radiation-sticker" then
+                        has_sticker = true
+                        break
+                    end
+                end
+                
+                if has_sticker then
                     -- Deal 5% of max health as extra damage
-                    -- This ensures even Behemoths die in ~20 seconds
                     local damage_amount = entity.max_health * 0.05
                     if entity.health > damage_amount then
                         entity.health = entity.health - damage_amount
