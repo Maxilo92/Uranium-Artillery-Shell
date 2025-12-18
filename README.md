@@ -1,5 +1,7 @@
 # Uranium Artillery Shell
 
+[Factorio Mod Portal](https://mods.factorio.com/mod/Uranium-Artillery-Shell)
+
 **Uranium Artillery Shell** is a Factorio mod that adds a powerful new ammunition type for your artillery turrets and wagons, bringing nuclear devastation to long-range warfare.
 
 ## Features
