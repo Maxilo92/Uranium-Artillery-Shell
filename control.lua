@@ -20,6 +20,19 @@ script.on_event(defines.events.on_entity_damaged, function(event)
     local entity = event.entity
     if not (entity and entity.valid) then return end
 
+    -- Infection mechanic: Mutated units infect others on contact (attack)
+    local cause = event.cause
+    if cause and cause.valid and cause.type == "unit" and string.find(cause.name, "^mutated%-") then
+        -- If the attacker is a mutated unit, infect the target
+        if (entity.type == "unit" or entity.type == "character") and not string.find(entity.name, "^mutated%-") then
+             entity.surface.create_entity{
+                name = "uranium-radiation-sticker",
+                position = entity.position,
+                target = entity
+            }
+        end
+    end
+
     -- Handle percentage damage for units (biters/spitters) to overcome regeneration/high HP
     -- Only run this check once per second per entity to save performance
     if entity.type == "unit" then
@@ -121,3 +134,4 @@ script.on_event(defines.events.on_entity_damaged, function(event)
         end
     end
 end)
+

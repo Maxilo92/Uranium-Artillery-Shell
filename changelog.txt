@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.5
+Date: 18.12.2025
+  Features:
+    - Added contagion mechanic: Mutated units now infect other units (and players) with radiation on hit.
+
+---------------------------------------------------------------------------------------------------
 Version: 0.1.4
 Date: 18.12.2025
   Features:
