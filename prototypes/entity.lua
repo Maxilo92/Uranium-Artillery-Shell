@@ -1,6 +1,9 @@
 local projectile = table.deepcopy(data.raw["artillery-projectile"]["artillery-projectile"])
 projectile.name = "uranium-artillery-projectile"
 
+-- Add green glow to projectile (Tracer effect)
+projectile.light = {intensity = 0.8, size = 15, color = {r=0.2, g=1, b=0.2}}
+
 -- Define the radiation cloud (based on poison cloud)
 local cloud = table.deepcopy(data.raw["smoke-with-trigger"]["poison-cloud"])
 cloud.name = "uranium-radiation-cloud"
@@ -41,6 +44,14 @@ cloud.action_frequency = 30 -- Damage every 0.5 seconds (30 ticks)
 -- Define the explosion visual
 local explosion = table.deepcopy(data.raw["explosion"]["big-artillery-explosion"])
 explosion.name = "uranium-artillery-explosion"
+
+-- Add green light flash to explosion
+explosion.light = {intensity = 1, size = 50, color = {r=0.2, g=1, b=0.2}}
+
+-- Use nuclear explosion sound
+if data.raw["explosion"]["atomic-bomb-explosion"] then
+    explosion.sound = table.deepcopy(data.raw["explosion"]["atomic-bomb-explosion"].sound)
+end
 
 -- Update projectile action to use new effects
 projectile.action = {
