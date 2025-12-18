@@ -2,13 +2,23 @@
 Version: 0.1.4
 Date: 18.12.2025
   Features:
-    - Added mutated worms (Small, Medium, Big, Behemoth).
+    - Mutated spawners now exclusively spawn mutated units.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.1.3
+Date: 18.12.2025
+  Features:
     - Mutated units (Biters, Spitters, Worms) are now "unstable":
     - They suffer constant decay damage (negative healing).
     - They are significantly more aggressive (faster movement, attack speed, and vision).
     - They deal 50% more damage.
     - They have normal health (glass cannons).
-    - Mutated spawners now exclusively spawn mutated units.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.1.2
+Date: 18.12.2025
+  Features:
+    - Added mutated worms (Small, Medium, Big, Behemoth).
 
 ---------------------------------------------------------------------------------------------------
 Version: 0.1.1
