@@ -1,5 +1,6 @@
 -- Initialize globals and register command to toggle debug overlays
 script.on_init(function()
+    if not global then global = {} end
     global.cloud_overlays = global.cloud_overlays or {}
     global.debug_enabled = global.debug_enabled or false
 end)
