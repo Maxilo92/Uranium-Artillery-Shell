@@ -21,7 +21,7 @@ data:extend({
     ingredients =
     {
       {type="item", name="coal", amount=1},
-      {type="item", name="water-barrel", amount=1}
+      {type="item", name="plastic-bar", amount=1}
     },
     results = {{type="item", name="uranium-antidote", amount=1}}
   }

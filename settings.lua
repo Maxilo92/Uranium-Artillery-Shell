@@ -38,5 +38,30 @@ data:extend({
         setting_type = "runtime-global",
         default_value = true,
         order = "e"
+    },
+    {
+        type = "double-setting",
+        name = "uranium-mutation-decay-percent",
+        setting_type = "startup",
+        default_value = 3,
+        minimum_value = 0,
+        maximum_value = 100,
+        order = "f"
+    },
+    {
+        type = "bool-setting",
+        name = "uranium-proximity-contagion-enabled",
+        setting_type = "runtime-global",
+        default_value = true,
+        order = "g"
+    },
+    {
+        type = "int-setting",
+        name = "uranium-mutation-delay",
+        setting_type = "runtime-global",
+        default_value = 1,
+        minimum_value = 0,
+        maximum_value = 60,
+        order = "h"
     }
 })

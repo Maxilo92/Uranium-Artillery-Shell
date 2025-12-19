@@ -94,23 +94,23 @@ cloud.affected_by_wind = false -- Stop it from moving
 cloud.show_when_smoke_off = true
 -- cloud.animation = nil -- Invisible cloud
 
--- Define a green fire trail for the sticker
+-- Define an invisible radiation trail that applies sticker on contact
 local trail = table.deepcopy(data.raw["fire"]["fire-flame"])
 trail.name = "uranium-radiation-trail"
-trail.damage_per_tick = {amount = 0, type = "fire"} -- No extra damage, just visual
+trail.damage_per_tick = {amount = 0.01, type = "poison"} -- Tiny poison damage to trigger infection
 trail.maximum_damage_multiplier = 1
-trail.initial_lifetime = 60
+trail.initial_lifetime = 120 -- 2 seconds trail
 trail.lifetime_increase_by = 0
 trail.lifetime_increase_cooldown = 100
-trail.limit_one_per_tile = false
-trail.spread_delay = 100
+trail.limit_one_per_tile = true -- One per tile to avoid spam
+trail.spread_delay = 300 -- Don't spread fire itself
 trail.spread_delay_deviation = 100
-trail.maximum_spread_count = 100
+trail.maximum_spread_count = 0 -- No fire spreading
 trail.emissions_per_second = {} -- No pollution
-trail.smoke = nil -- Invisible trail
--- Remove fire graphics, keep only smoke
+trail.smoke = nil -- Invisible
 trail.on_fuel_effect = nil
 trail.working_sound = nil
+-- Invisible graphics
 trail.pictures = {
     {
         filename = "__core__/graphics/empty.png",
@@ -131,10 +131,7 @@ local sticker = {
     flags = {"not-on-map"},
     duration_in_ticks = 4294967295, -- Effectively infinite (until death or cured)
     target_movement_modifier = 0.8,
-    damage_per_tick = { amount = 1 / 60, type = "poison" }, -- Minimal damage to trigger events, real damage is in control.lua
-    spread_fire_entity = "uranium-radiation-trail", -- Leave a trail
-    fire_spread_cooldown = 30, -- Every 0.5 seconds
-    fire_spread_radius = 0.1,
+    damage_per_tick = { amount = 1 / 60, type = "acid" }, -- Minimal damage to trigger events, real damage is in control.lua
     stickers = {
         {
             filename = "__core__/graphics/shoot-cursor-green.png", -- Simple green marker
@@ -206,7 +203,47 @@ cloud.action = {
                 type = "nested-result",
                 action = {
                     type = "area",
-                    radius = 12, -- Radiation radius (larger than explosion)
+                    radius = 45, -- Radiation radius (Atomic Bomb size)
+                    action_delivery = {
+                        type = "instant",
+                        target_effects = {
+                            {
+                                type = "create-sticker",
+                                sticker = "uranium-radiation-sticker"
+                            },
+                            {
+                                type = "damage",
+                                damage = {amount = 8, type = "acid"}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+cloud.action_frequency = 30 -- Apply sticker every 0.5 seconds (30 ticks)
+
+-- Define a smaller radiation aura for irradiated entities (contagion)
+local aura = table.deepcopy(data.raw["smoke-with-trigger"]["poison-cloud"])
+aura.name = "uranium-radiation-aura"
+aura.duration = 20 -- Short-lived (0.33 seconds)
+aura.fade_away_duration = 10
+aura.spread_duration = 5
+aura.color = {r=0.2, g=1, b=0.2, a=0.1} -- Very transparent
+aura.affected_by_wind = false
+aura.show_when_smoke_off = true
+aura.movement_slow_down_factor = 0
+aura.action = {
+    type = "direct",
+    action_delivery = {
+        type = "instant",
+        target_effects = {
+            {
+                type = "nested-result",
+                action = {
+                    type = "area",
+                    radius = 7, -- Smaller radius for contagion
                     action_delivery = {
                         type = "instant",
                         target_effects = {
@@ -221,7 +258,13 @@ cloud.action = {
         }
     }
 }
-cloud.action_frequency = 30 -- Apply sticker every 0.5 seconds (30 ticks)
+aura.action_frequency = 20 -- Apply sticker every 0.33 seconds
+
+-- Define a visible debug version of the aura
+local debug_aura = table.deepcopy(aura)
+debug_aura.name = "uranium-radiation-aura-debug"
+debug_aura.color = {r=0.2, g=1, b=0.2, a=0.6} -- Very visible green
+debug_aura.duration = 40 -- Longer for visibility
 
 -- Define a green smoke for the explosion
 -- Use "smoke" instead of "smoke-fast" for a fluffier, less triangular look
@@ -257,9 +300,9 @@ explosion.light = {intensity = 1, size = 50, color = {r=0.2, g=1, b=0.2}}
 -- Scale down the explosion to look "weaker"
 local function scale_anim(anim)
     if anim.scale then
-        anim.scale = anim.scale * 0.7
+        anim.scale = anim.scale * 1.2 -- Scale up to 1.2x (Atomic Bomb size)
     else
-        anim.scale = 0.7
+        anim.scale = 1.2
     end
     -- Fix flags if they are a string (Factorio 2.0 requires a list)
     if anim.flags and type(anim.flags) == "string" then
@@ -363,7 +406,7 @@ projectile.action = {
     }
 }
 
-data:extend({projectile, cloud, explosion, smoke})
+data:extend({projectile, cloud, aura, debug_aura, explosion, smoke})
 
 -- Define mutated units (Green versions)
 local unit_mapping = {}
@@ -432,7 +475,10 @@ for _, name in pairs(units_to_mutate) do
 
         -- Radiation suffering (Negative healing to simulate decay)
         -- They are unstable and slowly dying
-        unit.healing_per_tick = -0.005 -- Lose ~0.3 HP/sec (slow decay)
+        -- Calculate decay based on max health (approx 1% per second = 0.01 / 60 per tick)
+        local health = unit.max_health or 100
+        local decay_percent = settings.startup["uranium-mutation-decay-percent"].value
+        unit.healing_per_tick = -(health * (decay_percent / 100 / 60))
 
         -- Add resistance to poison (radiation) so they don't die instantly to the cloud
         if not unit.resistances then unit.resistances = {} end
@@ -455,6 +501,7 @@ for _, name in pairs(worms_to_mutate) do
     local worm = table.deepcopy(data.raw["turret"][name])
     if worm then
         worm.name = "mutated-" .. name
+        worm.autoplace = nil -- Prevent natural spawning
         
         -- Tint animations green
         local anims_to_tint = {
@@ -485,7 +532,9 @@ for _, name in pairs(worms_to_mutate) do
         end
 
         -- Radiation suffering (Negative healing to simulate decay)
-        worm.healing_per_tick = -0.005 -- Lose ~0.3 HP/sec
+        local health = worm.max_health or 200
+        local decay_percent = settings.startup["uranium-mutation-decay-percent"].value
+        worm.healing_per_tick = -(health * (decay_percent / 100 / 60))
 
         -- Add resistance to poison (radiation)
         if not worm.resistances then worm.resistances = {} end
@@ -505,8 +554,44 @@ local function create_mutated_spawner(original_name, new_name)
     local spawner = table.deepcopy(data.raw["unit-spawner"][original_name])
     if not spawner then return end
     spawner.name = new_name
-    spawner.tint = {r=0.2, g=1, b=0.2, a=1} -- Give it a green tint so we know it's mutated
+    spawner.autoplace = nil -- Prevent natural spawning
     
+    -- Use Spitter Spawner graphics for all mutated spawners (because they are green)
+    -- This ensures even Biter Spawners (Red) become Green when mutated
+    local green_spawner_graphics = data.raw["unit-spawner"]["spitter-spawner"]
+    if green_spawner_graphics then
+        spawner.animations = table.deepcopy(green_spawner_graphics.animations)
+        spawner.integration = table.deepcopy(green_spawner_graphics.integration)
+    end
+
+    -- Tint the spawner green (to make it even more radioactive)
+    local tint_color = {r=0.5, g=1, b=0.5, a=1}
+    if spawner.animations then
+        recursive_tint(spawner.animations, tint_color)
+    end
+    if spawner.integration then
+        recursive_tint(spawner.integration, tint_color)
+    end
+    
+    -- Map Color
+    spawner.map_color = {r=0.2, g=1, b=0.2}
+
+    -- Radiation suffering (Negative healing to simulate decay)
+    local health = spawner.max_health or 350
+    local decay_percent = settings.startup["uranium-mutation-decay-percent"].value
+    spawner.healing_per_tick = -(health * (decay_percent / 100 / 60))
+
+    -- Add a working light (for spawners, must use working_visualisations)
+    spawner.working_visualisations = spawner.working_visualisations or {}
+    table.insert(spawner.working_visualisations, {
+        light = {
+            type = "basic",
+            intensity = 1,
+            size = 20,
+            color = {r=0.2, g=1, b=0.2}
+        }
+    })
+
     -- Update spawn table to use mutated units
     if spawner.result_units then
         local new_result_units = {}

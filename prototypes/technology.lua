@@ -18,7 +18,7 @@ data:extend({
     prerequisites = {"artillery", "nuclear-power"},
     unit =
     {
-      count = 25,
+      count = 750,
       ingredients =
       {
         {"automation-science-pack", 1},
@@ -27,7 +27,7 @@ data:extend({
         {"military-science-pack", 1},
         {"utility-science-pack", 1}
       },
-      time = 10
+      time = 30
     },
     order = "e-a-b"
   }

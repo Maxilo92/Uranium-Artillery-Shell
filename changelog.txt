@@ -1,4 +1,58 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.9
+Date: 2025-12-18
+  Changes:
+    - Increased radiation cloud radius.
+    - Increased radiation cloud damage.
+    - Changed radiation damage type to 'acid' to ensure it affects structures (nests).
+    - Increased technology cost to 750 science packs and 30 seconds.
+    - Mutated nests now use green spitter nest graphics and glow green to be visually distinct.
+    - Mutated entities now decay based on percentage of max health (3% per second).
+    - Improved proximity contagion: Removed inactive spread_fire_entity and implemented independent on_tick contagion system.
+    - Contagion carriers now include sticker-bearers and editor-placed mutated entities.
+    - Contagion runs every 0.33–1.0 seconds depending on performance safeguards.
+  Bugfixes:
+    - Fixed nests not mutating.
+    - Fixed mutated units losing their attack group/command when mutating.
+    - Optimized performance by filtering damage events and reducing sticker checks.
+    - Fixed proximity contagion not working (now uses independent on_tick event instead of on_entity_damaged).
+    - Fixed normal aliens throwing particles (removed spread_fire_entity from sticker).
+    - Fixed crash "Can't create sticker, target does not accept stickers" by only applying stickers to units/characters and mutating nests/worms directly.
+    - Added debug mode `/uranium-debug` to visualize auras, show carrier counts, and log infections.
+  Features:
+    - Added console commands:
+      - /uranium-give: Gives shells and antidotes.
+      - /uranium-clear: Removes all radiation from the surface.
+      - /uranium-mutate: Mutates the selected entity.
+    - Added remote interface for other mods.
+    - Added startup setting 'Mutation Decay Rate' to configure how fast mutated units die (default 3%/s).
+    - Added proximity contagion: Irradiated entities now spread radiation to nearby entities.
+    - Added mutation delay: Entities must be irradiated for a configurable time before mutating (default 1s).
+    - Added visual mutation effect (green smoke when mutation occurs).
+    - Added settings:
+      - Proximity Contagion toggle
+      - Mutation Delay (0-60 seconds)
+  Changes:
+    - Changed RadAway recipe to use Plastic Bar instead of Water Barrel for better automation.
+    - Increased radiation cloud radius to 45 (Atomic Bomb size).
+    - Scaled up explosion animation to match the larger radius.
+    - Increased proximity contagion speed: 50% chance every 0.5s, radius 8 (was 10% every 1s, radius 4).
+  Performance:
+    - Optimized proximity contagion: Reduced frequency back to 1s (was 0.5s), radius 5, max 10 entities/check.
+    - Removed character type from proximity contagion (only affects units/spawners now).
+    - Added periodic timer cleanup to prevent memory bloat in long sessions.
+    - Reduced player damage check frequency back to 1s for better UPS.
+    - Refactored contagion processing: Batch processes tracked carriers (50 per tick) using a rotating cursor.
+    - Removed wide surface scans for stickers/mutated entities; carriers are tracked when stickers are applied or entities mutate.
+    - Disabled aura cloud creation outside debug mode to reduce entity churn; debug still shows visible aura and rings.
+  Bugfixes:
+    - Fixed mutated nests and worms spawning naturally during map generation.
+    - Fixed crash when loading saves from older versions.
+    - Fixed mutated spawners not glowing (now use working_visualisations).
+    - Fixed memory leaks from mutation timers not being cleaned up.
+    - Fixed potential crashes from accessing global table in certain events.
+
+---------------------------------------------------------------------------------------------------
 Version: 0.1.8
 Date: 2025-12-18
   Changes:
