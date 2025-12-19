@@ -1,8 +1,36 @@
 ---------------------------------------------------------------------------------------------------
 Version: 0.1.10
 Date: 2025-12-19
+  Major Features:
+    - Added MK2 Uranium Artillery Shell - extreme-yield endgame weapon equivalent to 3 atomic bombs.
+    - Added crafting components: Stabilized Radiation Core and Dense Uranium Casing.
+    - Added separate research tree for MK2 shell requiring space science packs.
+    - Added radiation decay system - fallout damage decreases from 100% to 20% over 30 seconds.
   Features:
     - Added French and Spanish localizations.
+    - Custom graphics for all new items (MK1/MK2 shells, projectiles, components).
+    - Green muzzle flash and map visualization for uranium artillery.
+    - MK2 explosion uses scaled atomic bomb animation with shockwave effect.
+    - Player radiation glow effect when standing in fallout.
+    - Enhanced sound effects for MK2 explosion (3x louder, wider audible range).
+    - Added debug overlay system: /uranium-debug command shows active radiation cloud zones with countdown timers.
+  Changes:
+    - MK2 shell creates 60-second fallout duration (vs 30s for MK1).
+    - MK2 explosion has 3x damage, 3x radius, and massive visual effects.
+    - Improved item descriptions for all uranium shells and components.
+    - Added German translations for all MK2 items and descriptions.
+    - MK2 artillery shells now properly mutate spawners when radiation cloud reaches them.
+    - Removed all blue explosion smoke - only green crater glow and radiation effects remain.
+    - Enhanced spawner mutation logic to handle both MK1 and MK2 radiation contact effects.
+  Bugfixes:
+    - Fixed dual mutation race condition causing infinite alien duplication.
+    - Fixed player damage not respecting mod settings.
+    - Fixed spawner sticker duplication after mutations.
+    - Fixed cloud action frequency optimization (30→60 ticks = 50% fewer entity creations).
+    - Fixed entity validity checks after mutations.
+    - Fixed atomic-explosion prototype fallback for compatibility.
+    - Fixed MK2 spawner mutation not triggering from uranium-radiation-contact-mk2 effect.
+    - Fixed blue vanilla explosion smoke lingering after atomic-bomb-based explosion.
 
 ---------------------------------------------------------------------------------------------------
 Version: 0.1.9
