@@ -1,4 +1,19 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.9
+Date: 2025-12-19
+  Changes:
+    - Increased radiation cloud radius.
+    - Increased radiation cloud damage.
+    - Changed radiation damage type to 'acid' to ensure it affects structures (nests).
+    - Added debug overlays controlled via /uranium-debug command (circle + timer, no settings toggle).
+  Bugfixes:
+    - Fixed nests not mutating and ensured spawner mutation works even when resistant to damage.
+    - Prevented mutated spawners from world generation (autoplace removed).
+    - Fixed crashes from applying stickers to entities that cannot accept them.
+    - Fixed nil global accesses in debug command and handlers.
+    - Fixed LuaRendering API errors by avoiding set_text/destroy and using TTL-based overlays.
+
+---------------------------------------------------------------------------------------------------
 Version: 0.1.8
 Date: 2025-12-18
   Changes:

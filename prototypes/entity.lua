@@ -131,7 +131,7 @@ local sticker = {
     flags = {"not-on-map"},
     duration_in_ticks = 4294967295, -- Effectively infinite (until death or cured)
     target_movement_modifier = 0.8,
-    damage_per_tick = { amount = 1 / 60, type = "poison" }, -- Minimal damage to trigger events, real damage is in control.lua
+    damage_per_tick = { amount = 1 / 60, type = "acid" }, -- Minimal damage to trigger events, real damage is in control.lua
     spread_fire_entity = "uranium-radiation-trail", -- Leave a trail
     fire_spread_cooldown = 30, -- Every 0.5 seconds
     fire_spread_radius = 0.1,
@@ -206,13 +206,21 @@ cloud.action = {
                 type = "nested-result",
                 action = {
                     type = "area",
-                    radius = 12, -- Radiation radius (larger than explosion)
+                    radius = 25, -- Radiation radius (larger than explosion)
                     action_delivery = {
                         type = "instant",
                         target_effects = {
                             {
                                 type = "create-sticker",
                                 sticker = "uranium-radiation-sticker"
+                            },
+                            {
+                                type = "damage",
+                                damage = {amount = 8, type = "acid"}
+                            },
+                            {
+                                type = "script",
+                                effect_id = "uranium-radiation-contact"
                             }
                         }
                     }
@@ -326,6 +334,10 @@ projectile.action = {
                 type = "create-entity",
                 entity_name = "uranium-radiation-cloud",
                 offset_deviation = {{-0.5, -0.5}, {0.5, 0.5}}
+            },
+            {
+                type = "script",
+                effect_id = "uranium-cloud-created"
             },
             {
                 type = "create-entity",
@@ -506,7 +518,14 @@ local function create_mutated_spawner(original_name, new_name)
     if not spawner then return end
     spawner.name = new_name
     spawner.tint = {r=0.2, g=1, b=0.2, a=1} -- Give it a green tint so we know it's mutated
+    spawner.autoplace = nil -- Prevent mutated spawners from generating in world gen
     
+    -- Radiation suffering (Negative healing to simulate decay)
+    spawner.healing_per_tick = -0.005 -- Lose ~0.3 HP/sec
+
+    -- Add a light
+    spawner.light = {intensity = 0.4, size = 10, color = {r=0.2, g=1, b=0.2}}
+
     -- Update spawn table to use mutated units
     if spawner.result_units then
         local new_result_units = {}
