@@ -169,6 +169,9 @@ end)
 script.on_event(defines.events.on_entity_damaged, function(event)
     local entity = event.entity
     if not (entity and entity.valid) then return end
+    if not global then global = {} end
+    global.radiation_targets = global.radiation_targets or {}
+    global.entity_mutations = global.entity_mutations or {}
     -- Handle percentage damage and mutation for units, turrets, and spawners
     -- Only run this check once per second per entity to save performance
     if entity.type == "unit" or entity.type == "turret" or entity.type == "unit-spawner" then

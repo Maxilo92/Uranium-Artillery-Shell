@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.11
+Date: 2025-12-20
+  Bugfixes:
+    - Fixed critical crash when on_entity_damaged event fires before global initialization.
+
+---------------------------------------------------------------------------------------------------
 Version: 0.1.10
 Date: 2025-12-19
   Major Features:
