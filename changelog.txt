@@ -1,12 +1,6 @@
 ---------------------------------------------------------------------------------------------------
-Version: 0.1.11
-Date: 2025-12-20
-  Bugfixes:
-    - Fixed critical crash when on_entity_damaged event fires before global initialization.
-
----------------------------------------------------------------------------------------------------
 Version: 0.1.10
-Date: 2025-12-19
+Date: 2025-12-20
   Major Features:
     - Added MK2 Uranium Artillery Shell - extreme-yield endgame weapon equivalent to 3 atomic bombs.
     - Added crafting components: Stabilized Radiation Core and Dense Uranium Casing.
@@ -37,6 +31,7 @@ Date: 2025-12-19
     - Fixed atomic-explosion prototype fallback for compatibility.
     - Fixed MK2 spawner mutation not triggering from uranium-radiation-contact-mk2 effect.
     - Fixed blue vanilla explosion smoke lingering after atomic-bomb-based explosion.
+    - Fixed critical crash when on_entity_damaged event fires before global initialization.
 
 ---------------------------------------------------------------------------------------------------
 Version: 0.1.9
