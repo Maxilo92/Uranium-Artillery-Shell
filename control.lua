@@ -172,8 +172,7 @@ script.on_event(defines.events.on_entity_damaged, function(event)
     if not global then global = {} end
     global.radiation_targets = global.radiation_targets or {}
     global.entity_mutations = global.entity_mutations or {}
-    -- Handle percentage damage and mutation for units, turrets, and spawners
-    -- Only run this check once per second per entity to save performance
+    -- Handle basic tracking for units, turrets, and spawners; heavy work moved to on_tick
     if entity.type == "unit" or entity.type == "turret" or entity.type == "unit-spawner" then
         local has_sticker = false
         if entity.stickers then
@@ -186,82 +185,13 @@ script.on_event(defines.events.on_entity_damaged, function(event)
         end
         
         if has_sticker then
-            -- Track sticker age for decay
+            -- Ensure target is tracked; actual processing is handled on on_tick
             local unit_id = entity.unit_number
-            local applied_tick = game.tick
             if unit_id then
-                local entry = (global.radiation_targets or {})[unit_id]
-                if entry and entry.applied_tick then
-                    applied_tick = entry.applied_tick
-                else
-                    global.radiation_targets[unit_id] = {applied_tick = game.tick}
-                end
-            end
-
-            -- Mutation Logic (gated to once per second to prevent race conditions with on_script_trigger_effect)
-            if event.damage_type.name == "acid" and (game.tick % 60 == 0) then
-                local mutation_setting = settings.global["uranium-mutation-enabled"]
-                if mutation_setting and mutation_setting.value and not string.find(entity.name, "^mutated%-") then
-                    -- Check if this entity mutated recently to prevent race condition with on_script_trigger_effect handler
-                    local last_mutation_tick = global.entity_mutations[unit_id] or 0
-                    if game.tick - last_mutation_tick >= 60 then  -- Only allow mutations once per second
-                        local new_name = "mutated-" .. entity.name
-                        if prototypes.entity[new_name] then
-                            local surface = entity.surface
-                            local position = entity.position
-                            local force = entity.force
-                            local health_ratio = entity.health / entity.max_health
-                            
-                            local new_entity = surface.create_entity{
-                                name = new_name,
-                                position = position,
-                                force = force,
-                                fast_replace = true,
-                                spill = false,
-                                create_build_effect_smoke = false
-                            }
-                            if new_entity then
-                                new_entity.health = new_entity.max_health * health_ratio
-                                -- Re-apply sticker only to entities that accept stickers (units/characters/turrets)
-                                if new_entity.type == "unit" or new_entity.type == "character" or new_entity.type == "turret" then
-                                    surface.create_entity{
-                                        name = "uranium-radiation-sticker",
-                                        position = position,
-                                        target = new_entity
-                                    }
-                                end
-                                
-                                -- Track mutation and destroy old entity
-                                global.entity_mutations[unit_id] = game.tick
-                                if global.radiation_targets then
-                                    global.radiation_targets[unit_id] = nil -- reset decay tracking for old entity
-                                end
-                                if entity.valid then
-                                    entity.destroy()
-                                end
-                                
-                                return -- Entity replaced
-                            else
-                                -- Log error if entity creation failed
-                                log("[Uranium] Failed to create mutated entity " .. new_name .. " at position (" .. position.x .. ", " .. position.y .. ")")
-                            end
-                        end
-                    end
-                end
-            end
-
-            -- Percentage Damage Logic (only apply if entity still valid after potential mutation)
-            if entity.valid and event.damage_type.name == "acid" and (game.tick % 60 == 0) then
-                -- Compute decay factor based on sticker age (30s lifetime to 20% strength)
-                local age_ticks = game.tick - applied_tick
-                local decay_factor = math.max(0.2, 1 - (age_ticks / 1800))
-
-                local damage_percent = (settings.global["uranium-radiation-damage-percent"].value / 100) * decay_factor
-                local damage_amount = entity.max_health * damage_percent
-                if entity.health > damage_amount then
-                    entity.health = entity.health - damage_amount
-                else
-                    entity.die(entity.force)
+                global.radiation_targets = global.radiation_targets or {}
+                local entry = global.radiation_targets[unit_id]
+                if not entry then
+                    global.radiation_targets[unit_id] = { entity = entity, applied_tick = game.tick }
                 end
             end
         else
@@ -361,6 +291,15 @@ script.on_event(defines.events.on_script_trigger_effect, function(event)
                         end
                     end
                 end
+            end
+        end
+        -- Track radiation target for periodic processing
+        local target = event.target_entity
+        if target and target.valid then
+            if not global.radiation_targets then global.radiation_targets = {} end
+            local unit_id = target.unit_number
+            if unit_id then
+                global.radiation_targets[unit_id] = { entity = target, applied_tick = game.tick }
             end
         end
         return
@@ -486,6 +425,87 @@ end)
 -- Update debug overlay timers and player radiation glows
 script.on_event(defines.events.on_tick, function()
     if not global then return end
+    -- Apply periodic radiation damage and mutations once per second for tracked targets
+    if global.radiation_targets and (game.tick % 60 == 0) then
+        for unit_id, entry in pairs(global.radiation_targets) do
+            local target = entry.entity
+            if target and target.valid then
+                -- Verify sticker still present; if not, stop tracking
+                local has_sticker = false
+                if target.stickers then
+                    for _, sticker in pairs(target.stickers) do
+                        if sticker.valid and sticker.name == "uranium-radiation-sticker" then
+                            has_sticker = true
+                            break
+                        end
+                    end
+                end
+                if not has_sticker then
+                    global.radiation_targets[unit_id] = nil
+                else
+                    -- Decay factor based on sticker age
+                    local applied_tick = entry.applied_tick or game.tick
+                    local age_ticks = game.tick - applied_tick
+                    local decay_factor = math.max(0.2, 1 - (age_ticks / 1800))
+
+                    -- Mutation for units, turrets, spawners
+                    local mutation_setting = settings.global["uranium-mutation-enabled"]
+                    if mutation_setting and mutation_setting.value and (target.type == "unit" or target.type == "turret" or target.type == "unit-spawner") and not string.find(target.name, "^mutated%-") then
+                        local last_mutation_tick = (global.entity_mutations or {})[unit_id] or 0
+                        if game.tick - last_mutation_tick >= 60 then
+                            local new_name = "mutated-" .. target.name
+                            if prototypes.entity[new_name] then
+                                local surface = target.surface
+                                local position = target.position
+                                local force = target.force
+                                local health_ratio = target.health / target.max_health
+                                local new_entity = surface.create_entity{
+                                    name = new_name,
+                                    position = position,
+                                    force = force,
+                                    fast_replace = true,
+                                    spill = false,
+                                    create_build_effect_smoke = false
+                                }
+                                if new_entity then
+                                    new_entity.health = new_entity.max_health * health_ratio
+                                    if new_entity.type == "unit" or new_entity.type == "character" or new_entity.type == "turret" then
+                                        surface.create_entity{ name = "uranium-radiation-sticker", position = position, target = new_entity }
+                                    end
+                                    global.entity_mutations = global.entity_mutations or {}
+                                    global.entity_mutations[unit_id] = game.tick
+                                    if global.radiation_targets then global.radiation_targets[unit_id] = nil end
+                                    if target.valid then target.destroy() end
+                                    -- Replace tracking to new entity
+                                    local new_id = new_entity.unit_number
+                                    if new_id then
+                                        global.radiation_targets[new_id] = { entity = new_entity, applied_tick = applied_tick }
+                                    end
+                                    -- Proceed to damage phase on new entity
+                                    target = new_entity
+                                end
+                            end
+                        end
+                    end
+
+                    -- Percentage damage application
+                    if target.valid then
+                        local damage_percent = (settings.global["uranium-radiation-damage-percent"].value / 100) * decay_factor
+                        local damage_amount = target.max_health * damage_percent
+                        if target.health > damage_amount then
+                            target.health = target.health - damage_amount
+                        else
+                            target.die(target.force)
+                            global.radiation_targets[unit_id] = nil
+                        end
+                    end
+                end
+            else
+                -- Clean up invalid
+                global.radiation_targets[unit_id] = nil
+            end
+        end
+    end
     
     -- Update debug overlay timers once per second
     if global.cloud_overlays and (game.tick % 60 == 0) then

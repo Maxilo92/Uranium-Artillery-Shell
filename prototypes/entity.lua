@@ -139,7 +139,7 @@ local sticker = {
     flags = {"not-on-map"},
     duration_in_ticks = 4294967295, -- Effectively infinite (until death or cured)
     target_movement_modifier = 0.8,
-    damage_per_tick = { amount = 1 / 60, type = "acid" }, -- Minimal damage to trigger events, real damage is in control.lua
+    damage_per_tick = { amount = 0, type = "acid" }, -- Move periodic damage to control.lua for performance
     spread_fire_entity = "uranium-radiation-trail", -- Leave a trail
     fire_spread_cooldown = 30, -- Every 0.5 seconds
     fire_spread_radius = 0.1,
