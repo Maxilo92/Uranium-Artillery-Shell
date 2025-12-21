@@ -427,7 +427,15 @@ script.on_event(defines.events.on_tick, function()
     if not global then return end
     -- Apply periodic radiation damage and mutations once per second for tracked targets
     if global.radiation_targets and (game.tick % 60 == 0) then
-        for unit_id, entry in pairs(global.radiation_targets) do
+        -- Defensive: ensure table and iterate over a snapshot to avoid mutation issues
+        if type(global.radiation_targets) ~= "table" then
+            global.radiation_targets = {}
+        end
+        local snapshot = {}
+        for id, e in pairs(global.radiation_targets) do
+            snapshot[id] = e
+        end
+        for unit_id, entry in pairs(snapshot) do
             local target = entry.entity
             if target and target.valid then
                 -- Verify sticker still present; if not, stop tracking
