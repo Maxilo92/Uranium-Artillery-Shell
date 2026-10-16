@@ -33,6 +33,17 @@ local CLOUD_EFFECTS = {
     ["uranium-cloud-created-mk2"] = true,
 }
 
+-- Fixed structures the fallout eats away at. They cannot carry the radiation
+-- sticker, so they suffer only while they stand in a field (see process_structures).
+local STRUCTURE_TYPES = {"unit-spawner", "turret"}
+
+local DEATH_EFFECT = "uranium-radiation-death"
+
+-- Geiger counter: one clip per second, denser the closer to ground zero.
+-- Intensity is 1 at the centre of a field and 0 at its edge.
+local GEIGER_SOUNDS = {"uranium-geiger-1", "uranium-geiger-2", "uranium-geiger-3"}
+local GEIGER_THRESHOLDS = {0.6, 0.25} -- above the first: level 3, above the second: level 2
+
 --------------------------------------------------------------------------------
 -- storage
 --------------------------------------------------------------------------------
@@ -83,16 +94,23 @@ end
 local function ensure_glow(character, unit_number)
     local glow = storage.character_glows[unit_number]
     if glow and glow.valid then return end
-    -- The render object is anchored to the character, so it follows it on its
-    -- own; no per-tick position update needed.
-    storage.character_glows[unit_number] = rendering.draw_circle{
-        color = {r = 0.2, g = 1, b = 0.2, a = 0.4},
-        radius = 0.8,
-        filled = true,
+    -- A sickly green light around an irradiated player, on top of the aura the
+    -- sticker draws. Anchored to the character, so it follows on its own.
+    storage.character_glows[unit_number] = rendering.draw_light{
+        sprite = "utility/light_small",
+        scale = 1.2,
+        intensity = 0.7,
+        color = {r = 0.3, g = 1, b = 0.3},
         surface = character.surface,
         target = character,
-        draw_on_ground = true,
     }
+end
+
+-- Kills an entity the radiation has worn down, with a visible green burst so the
+-- fallout's kills are seen rather than units silently dropping dead.
+local function radiation_kill(entity, force)
+    entity.surface.create_entity{name = DEATH_EFFECT, position = entity.position}
+    entity.die(force or entity.force)
 end
 
 local function cloud_style(is_mk2)
@@ -207,8 +225,8 @@ local function apply_radiation_damage(entity, unit_number, percent)
     if entity.health > damage then
         entity.health = entity.health - damage
     else
-        entity.die(entity.force)
         untrack(unit_number)
+        radiation_kill(entity)
     end
 end
 
@@ -265,32 +283,86 @@ end
 
 -- Nests carry no "breaths-air" flag, so the fallout trigger deliberately skips
 -- them - that filter is what keeps it from touching every chest and tree in
--- range. They are picked up here instead: a handful per cloud, found with one
--- type-filtered search.
-local function process_nests(tick)
-    local mutation_enabled = settings.global["uranium-mutation-enabled"].value
+-- range - and neither nests nor worms can carry the radiation sticker. They are
+-- picked up here instead, once per second for every field they stand in:
+-- mutation, the contact acid, and the same share of max health that radiation
+-- sickness takes from units. Without that last part the fallout barely
+-- scratched a fully evolved nest (~2800 HP against 8 acid per second for 30
+-- seconds), and mutation then left the survivors stronger than before.
+local function process_structures(tick)
+    local clouds = storage.radiation_clouds
+    if not clouds[1] then return end
 
-    for _, cloud in pairs(storage.radiation_clouds) do
+    local mutation_enabled = settings.global["uranium-mutation-enabled"].value
+    local damage_percent = settings.global["uranium-radiation-damage-percent"].value / 100
+
+    for _, cloud in pairs(clouds) do
         if cloud.expires_tick > tick then
             local surface = game.surfaces[cloud.surface_index]
             local force = cloud.force and game.forces[cloud.force]
-            if surface then
-                local nests = surface.find_entities_filtered{
+            if surface and force then
+                local found = surface.find_entities_filtered{
                     position = cloud.position,
                     radius = cloud.radius,
-                    type = "unit-spawner",
+                    type = STRUCTURE_TYPES,
                 }
-                for _, nest in pairs(nests) do
-                    if nest.valid then
-                        local target = nest
+                for _, entity in pairs(found) do
+                    -- Never the shooter's own side: modded player turrets can
+                    -- be of type "turret" too.
+                    if entity.valid and entity.force ~= force and not entity.force.get_friend(force) then
+                        local target = entity
                         if mutation_enabled then
-                            target = try_mutate(nest, nest.unit_number, tick, tick) or nest
+                            target = try_mutate(entity, entity.unit_number, tick, tick) or entity
                         end
-                        if target.valid and force and cloud.contact_damage then
+                        if target.valid and cloud.contact_damage then
                             target.damage(cloud.contact_damage, force, "acid")
+                        end
+                        if target.valid and damage_percent > 0 then
+                            local damage = target.max_health * damage_percent
+                            if target.health > damage then
+                                target.health = target.health - damage
+                            else
+                                radiation_kill(target, force)
+                            end
                         end
                     end
                 end
+            end
+        end
+    end
+end
+
+-- Plays the Geiger counter to every player standing in a fallout field, and a
+-- slow tick to anyone still carrying radiation sickness outside of one.
+local function process_geiger(tick)
+    local clouds = storage.radiation_clouds
+    local targets = storage.radiation_targets
+    for _, player in pairs(game.connected_players) do
+        local character = player.character
+        if character and character.valid then
+            local position = character.position
+            local surface_index = character.surface.index
+            local intensity = -1
+            for _, cloud in pairs(clouds) do
+                if cloud.expires_tick > tick and cloud.surface_index == surface_index then
+                    local dx, dy = position.x - cloud.position.x, position.y - cloud.position.y
+                    local distance = math.sqrt(dx * dx + dy * dy)
+                    if distance < cloud.radius then
+                        intensity = math.max(intensity, 1 - distance / cloud.radius)
+                    end
+                end
+            end
+
+            local level
+            if intensity > GEIGER_THRESHOLDS[1] then
+                level = 3
+            elseif intensity > GEIGER_THRESHOLDS[2] then
+                level = 2
+            elseif intensity >= 0 or (character.unit_number and targets[character.unit_number]) then
+                level = 1
+            end
+            if level then
+                player.play_sound{path = GEIGER_SOUNDS[level]}
             end
         end
     end
@@ -343,7 +415,8 @@ end
 script.on_nth_tick(PROCESS_INTERVAL, function(event)
     local tick = event.tick
     process_targets(tick)
-    process_nests(tick)
+    process_structures(tick)
+    process_geiger(tick)
     process_clouds(tick)
     prune_mutation_history(tick)
     prune_glows()

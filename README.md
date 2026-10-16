@@ -7,17 +7,19 @@
 ## Features
 
 ### ☢️ Uranium Artillery Shell
-*   **Massive Damage**: Deals 2000 combined damage (Physical + Explosion) in a 15 tile radius, both configurable.
-*   **Nuclear Fallout**: Creates a lingering, invisible radiation field marked by a **glowing green crater**, reaching further than the blast itself (25 tiles at the default radius) and lasting 30 seconds. The fallout only affects living things - it will not chew through your own walls, and a vehicle shields you from it.
+*   **A Real Nuclear Blast**: The full atomic-bomb treatment in radioactive green - white flash, expanding dust ring, shockwave, mushroom cloud, the atomic bomb's own detonation sound, a scorched crater and screen shake.
+*   **Massive Damage**: Deals 4000 combined damage (Physical + Explosion) in a 15 tile radius, both configurable. That is enough to destroy a **fully evolved nest, behemoth worm or behemoth biter in one hit** - a vanilla artillery shell needs two shells per nest at high evolution.
+*   **Nuclear Fallout**: Leaves a radiation field that reaches further than the blast itself (25 tiles at the default radius) and lasts 30 seconds. You can see it - green haze drifting over the ground, glowing particles rising out of it, flickering green light at night - and hear it: a **Geiger counter** crackles while you stand in it, faster the closer you get to ground zero. The fallout only affects living things and enemy structures - it will not chew through your own walls, and a vehicle shields you from it.
+*   **Nothing Survives the Field**: Nests and worms inside the fallout lose the same share of their health per second as irradiated units, so whatever the blast leaves standing is gone within about 20 seconds.
 *   **Permanent Radiation**: Units and players caught in the fallout are afflicted with **Radiation Sickness**.
     *   Lasts indefinitely until death or cured.
     *   Deals **8 acid damage/second** while you stand in the fallout, plus the percentage damage below.
-    *   Slows movement speed by 20% and marks the victim green.
+    *   Slows movement speed by 20%. Victims carry a pulsing green aura and shed glowing particles; whatever the radiation kills goes out in a green burst.
     *   Fades to 20% strength over 30 seconds once you leave the fallout.
 *   **Anti-Behemoth**: Irradiated units take an additional **5% of their max HP** as damage every second, ensuring nothing survives for long.
 
 ### 💥 MK2 Shell
-*   Endgame variant with **3x radius, 3x damage** and a 90 second fallout field.
+*   Endgame variant with **3x radius, 3x damage** and a 90 second fallout field. Heard across the whole map like the atomic bomb, and levels cliffs at ground zero.
 
 ### 💊 RadAway (Antidote)
 *   **Cure Yourself**: A new consumable item that instantly cures Radiation Sickness.
@@ -34,9 +36,9 @@
 You can configure the following settings in the Mod Settings menu:
 
 *   **Enable Alien Mutation**: Toggle whether radioactive nests mutate into stronger variants.
-*   **Radiation Damage (%)**: Percentage of max health dealt as damage per second to irradiated units.
+*   **Radiation Damage (%)**: Share of max health the radiation takes per second - from irradiated units and players, and from nests and worms while they stand in the fallout.
 *   **Enable Player Radiation Damage**: Toggle whether players take radiation damage.
-*   **Artillery Shell Damage**: Total damage of the explosion (Startup setting).
+*   **Blast Damage**: Total damage of the explosion per target, default 4000 (Startup setting).
 *   **Artillery Explosion Radius**: Radius of the explosion and radiation cloud (Startup setting).
 
 ## Recipes

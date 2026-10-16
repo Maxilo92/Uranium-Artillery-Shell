@@ -1,4 +1,46 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.6.1
+Date: 2026-10-16
+  Changes:
+    - Release for Factorio 2.0. Same content as 0.6.0, which is the Factorio 2.1 release.
+---------------------------------------------------------------------------------------------------
+Version: 0.6.0
+Date: 2026-10-16
+  Graphics:
+    - The impact is now a real nuclear blast. Earlier versions copied only the atomic bomb's mushroom
+      sprite and a single shockwave ring, which made the shell look like a big ordinary explosion -
+      what makes the atomic bomb feel like one is the blast wave of thousands of dust clouds, fire
+      puffs and shockwave fragments it fires out of ground zero. The shells now do the same, in
+      radioactive green and scaled to their own blast radius, with a white-to-green flash, a green
+      mushroom cloud, a scorched crater and the nuclear-ground ring around it.
+    - The fallout field is visible. It used to be invisible apart from a single green light at the
+      crater. It now drifts as a green haze over the whole field, glowing particles rise out of the
+      ground, and green light patches flicker across it at night - all of it for exactly as long as
+      the field lasts.
+    - Irradiated units and players carry a pulsing green aura and shed glowing particles, replacing
+      the small crosshair marker. An irradiated player also gives off green light.
+    - Whatever the radiation kills goes out in a green burst, so the fallout's kills are visible
+      instead of units quietly dropping dead.
+  Sounds:
+    - A Geiger counter crackles while you stand in a fallout field, denser the closer you are to
+      ground zero, and ticks slowly while you still carry radiation sickness.
+    - The shells now detonate with the atomic bomb's own explosion sound. MK1 is heard locally, since
+      it is fired in barrages; MK2 is heard across the map like the atomic bomb.
+  Balancing:
+    - Blast damage doubled from 2000 to 4000. Measured against a nest cluster at evolution 0.9, the
+      old blast killed none of the 14 nests: Factorio scales nest health with evolution (about 2800
+      HP at 0.9, 3500 at 1.0), and 2000 damage did exactly as much per target as a vanilla artillery
+      shell. 4000 destroys a fully evolved nest, behemoth worm or behemoth biter in one hit.
+    - The setting is now called "Blast damage". Factorio keeps every stored setting value, so the new
+      default would never have reached an existing install under the old name; a customised value
+      has to be set again.
+    - Nests and worms standing in the fallout now lose the same share of their health per second as
+      irradiated units (the "Radiation damage" setting, 5% by default). Before, they only took 8 acid
+      per second, which a fully evolved nest shrugged off - and mutation then made the survivors
+      stronger. A single MK1 shell now clears a nest cluster within its 25 tile fallout field in
+      about 20 seconds.
+    - The MK2 shell levels cliffs at ground zero, like the atomic bomb.
+---------------------------------------------------------------------------------------------------
 Version: 0.5.1
 Date: 2026-10-13
   Changes:

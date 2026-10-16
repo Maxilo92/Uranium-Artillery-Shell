@@ -1,7 +1,9 @@
 local shared = require("shared")
+local nuke_effects = require("prototypes.nuke_effects")
 
 local BLAST_RADIUS = shared.blast_radius()
 local FALLOUT_RADIUS = shared.fallout_radius()
+local BLAST_DAMAGE = settings.startup["uranium-artillery-blast-damage"].value
 local MK2 = shared.MK2_MULTIPLIER
 
 -- Helper to recursively tint animations
@@ -43,43 +45,6 @@ local function recursive_tint(anim, tint)
     end
 end
 
--- Helper to recursively scale animations
-local function recursive_scale(anim, scale)
-    if not anim then return end
-    if anim.layers then
-        for _, layer in pairs(anim.layers) do
-            recursive_scale(layer, scale)
-        end
-    elseif anim.filenames or anim.stripes or anim.filename then
-        anim.scale = (anim.scale or 1) * scale
-        if anim.hr_version then
-            recursive_scale(anim.hr_version, scale)
-        end
-    elseif type(anim) == "table" then
-         -- Check if it's a list of variations
-        local is_list = false
-        for k, _ in pairs(anim) do
-            if type(k) == "number" then
-                is_list = true
-                break
-            end
-        end
-
-        if is_list then
-            for _, variation in pairs(anim) do
-                if type(variation) == "table" then
-                    recursive_scale(variation, scale)
-                end
-            end
-        else
-            anim.scale = (anim.scale or 1) * scale
-            if anim.hr_version then
-                recursive_scale(anim.hr_version, scale)
-            end
-        end
-    end
-end
-
 local projectile = table.deepcopy(data.raw["artillery-projectile"]["artillery-projectile"])
 projectile.name = "uranium-artillery-projectile"
 
@@ -109,7 +74,7 @@ cloud.name = "uranium-radiation-cloud"
 cloud.duration = shared.MK1_CLOUD_DURATION
 cloud.fade_away_duration = 120
 cloud.color = {r=0.2, g=1, b=0.2, a=0} -- Make cloud invisible
-cloud.animation = nil -- Remove visual cloud; the crater glow marks the area
+cloud.animation = nil -- The visible fallout is drawn by nuke_effects.lua
 cloud.affected_by_wind = false -- Stop it from moving
 cloud.show_when_smoke_off = false
 
@@ -120,15 +85,10 @@ cloud.show_when_smoke_off = false
 --     field is set by the `area` radius of the trigger below and by nothing else.
 --   * `spread_duration` is a real property, but it ramps up how far the smoke's
 --     own particles drift - and `animation = nil` means there are no particles.
---     The override was inert, so it is gone as well; what stays is whatever
---     poison-cloud brought along, which is equally inert.
 --   * `created_effect` is inherited from poison-cloud, and it spawned 21
---     `poison-cloud-visual-dummy` entities in two rings plus the poison capsule
---     explosion sound. A cloud documented as invisible was therefore painting a
---     cyan poison cloud over every uranium impact. The shell brings its own green
---     visuals (explosion, shockwave, smoke puffs, crater glow) and control.lua
---     draws the exact fallout circle with a countdown, so the inherited ones are
---     dropped rather than recoloured.
+--     `poison-cloud-visual-dummy` entities plus the poison capsule sound: a cyan
+--     poison cloud over every uranium impact. The shell spawns its own green
+--     haze instead (nuke_effects.lua), sized to the whole fallout field.
 cloud.created_effect = nil
 
 -- Kept only so saves from <= 0.1.10 do not lose a prototype on update: back then
@@ -176,20 +136,13 @@ local sticker = {
     duration_in_ticks = 2147483647, -- Effectively infinite (until death or cured)
     target_movement_modifier = 0.8,
     damage_per_tick = { amount = 0, type = "acid" }, -- Periodic damage lives in control.lua
-    animation = {
-        filename = "__core__/graphics/shoot-cursor-green.png", -- Simple green marker
-        priority = "extra-high",
-        width = 258,
-        height = 183,
-        frame_count = 1,
-        shift = {0, 0},
-        tint = {r=0.5, g=1, b=0.5, a=0.5},
-        scale = 0.2,
-        draw_as_glow = true,
-        flags = {"no-crop"}
-    }
 }
--- Define a glowing crater effect (using fire entity for light)
+-- A pulsing green aura on the ground plus glowing motes rising off the victim.
+nuke_effects.sticker_visuals(sticker)
+
+-- The light at the crater (a fire entity, because that is what can carry one).
+-- It now spans the whole fallout field and flickers; nuke_effects.lua adds
+-- smaller light patches scattered across the field on top of it.
 local glow = table.deepcopy(data.raw["fire"]["fire-flame"])
 glow.name = "uranium-radiation-glow"
 glow.damage_per_tick = {amount = 0, type = "fire"}
@@ -205,8 +158,10 @@ glow.spread_delay = 0
 glow.spread_delay_deviation = 0
 glow.maximum_spread_count = 0 -- Don't spread
 glow.emissions_per_second = {}
--- Green light
-glow.light = {intensity = 0.8, size = 20, color = {r=0.1, g=1, b=0.1}}
+glow.light = {
+    intensity = 0.7, size = FALLOUT_RADIUS, color = {r = 0.1, g = 1, b = 0.15},
+    flicker_interval = 90, flicker_min_modifier = 0.8, flicker_max_modifier = 1.1,
+}
 -- Remove smoke and fire graphics, we just want the light
 glow.smoke = nil
 glow.on_fuel_effect = nil
@@ -231,87 +186,42 @@ cloud_mk2.name = "uranium-radiation-cloud-mk2"
 cloud_mk2.duration = shared.MK2_CLOUD_DURATION
 cloud_mk2.fade_away_duration = 360
 cloud_mk2.color = {r=0.1, g=1, b=0.4, a=0} -- Invisible MK2 cloud
--- No spread_duration / spread_radius / created_effect here either; see the MK1
--- cloud above. The MK2 fallout field is three times as wide purely because the
--- `area` radius of its trigger below is.
-
--- MK2 Cloud action with 3x radius
-cloud_mk2.action = {
-    type = "direct",
-    action_delivery = {
-        type = "instant",
-        target_effects = {
-            {
-                type = "nested-result",
-                action = {
-                    type = "area",
-                    radius = FALLOUT_RADIUS * MK2,
-                    -- Only living things. Without this the trigger walks every
-                    -- chest, belt and tree in a 75 tile circle every second,
-                    -- which measured as the single most expensive thing the mod
-                    -- does. Nests have no such flag and are handled in
-                    -- control.lua instead.
-                    entity_flags = {"breaths-air"},
-                    action_delivery = {
-                        type = "instant",
-                        target_effects = {
-                            {
-                                type = "create-sticker",
-                                sticker = "uranium-radiation-sticker"
-                            },
-                            {
-                                type = "damage",
-                                damage = {amount = shared.MK2_CONTACT_DAMAGE, type = "acid"}
-                            },
-                            {
-                                type = "script",
-                                effect_id = "uranium-radiation-contact-mk2"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
--- SmokeWithTriggerPrototype uses action_cooldown; action_frequency is not a
--- property, so setting it left the inherited poison-cloud value of 30 in place
--- and the cloud pulsed twice per second.
-cloud_mk2.action_cooldown = 60
 
 local glow_mk2 = table.deepcopy(glow)
 glow_mk2.name = "uranium-radiation-glow-mk2"
-glow_mk2.light = {intensity = 1, size = 30, color = {r=0.05, g=1, b=0.2}}
+glow_mk2.light.size = math.min(FALLOUT_RADIUS * MK2, 60)
+glow_mk2.light.intensity = 0.8
 glow_mk2.initial_lifetime = shared.MK2_CLOUD_DURATION
 
-data:extend({cloud_mk2, glow_mk2})
-
--- Cloud damage action
-cloud.action = {
-    type = "direct",
-    action_delivery = {
-        type = "instant",
-        target_effects = {
-            {
-                type = "nested-result",
-                action = {
-                    type = "area",
-                    radius = FALLOUT_RADIUS, -- Radiation radius (larger than explosion)
-                    entity_flags = {"breaths-air"}, -- see the MK2 cloud for why
-                    action_delivery = {
-                        type = "instant",
-                        target_effects = {
-                            {
-                                type = "create-sticker",
-                                sticker = "uranium-radiation-sticker"
-                            },
-                            {
-                                type = "damage",
-                                damage = {amount = shared.MK1_CONTACT_DAMAGE, type = "acid"}
-                            },
-                            {
-                                type = "script",
-                                effect_id = "uranium-radiation-contact"
+-- The fallout trigger: once per second, everything that breathes inside the
+-- field catches radiation sickness and takes a pulse of acid damage.
+--
+-- `entity_flags = {"breaths-air"}` limits it to living things. Without it the
+-- trigger walks every chest, belt and tree in the field every second, which
+-- measured as the single most expensive thing the mod does. Nests and worms are
+-- handled in control.lua instead.
+--
+-- SmokeWithTriggerPrototype uses action_cooldown; action_frequency is not a
+-- property, so setting it left the inherited poison-cloud value of 30 in place
+-- and the cloud pulsed twice per second.
+local function fallout_action(radius, contact_damage, effect_id)
+    return {
+        type = "direct",
+        action_delivery = {
+            type = "instant",
+            target_effects = {
+                {
+                    type = "nested-result",
+                    action = {
+                        type = "area",
+                        radius = radius,
+                        entity_flags = {"breaths-air"},
+                        action_delivery = {
+                            type = "instant",
+                            target_effects = {
+                                {type = "create-sticker", sticker = shared.STICKER_NAME},
+                                {type = "damage", damage = {amount = contact_damage, type = "acid"}},
+                                {type = "script", effect_id = effect_id},
                             }
                         }
                     }
@@ -319,192 +229,89 @@ cloud.action = {
             }
         }
     }
-}
-cloud.action_cooldown = 60 -- Pulse once per second (see the MK2 note above)
-
--- Define the explosion visual
-local source_name = "nuke-explosion"
-if not data.raw["explosion"][source_name] then
-    source_name = "big-artillery-explosion"
 end
+cloud.action = fallout_action(FALLOUT_RADIUS, shared.MK1_CONTACT_DAMAGE, "uranium-radiation-contact")
+cloud.action_cooldown = 60
+cloud_mk2.action = fallout_action(FALLOUT_RADIUS * MK2, shared.MK2_CONTACT_DAMAGE, "uranium-radiation-contact-mk2")
+cloud_mk2.action_cooldown = 60
 
-local explosion = table.deepcopy(data.raw["explosion"][source_name])
-explosion.name = "uranium-artillery-explosion"
+data:extend({cloud, cloud_mk2, glow_mk2})
 
--- Add green light flash to explosion
-explosion.light = {intensity = 1, size = 50, color = {r=0.2, g=1, b=0.2}}
+-- What a shell does on impact. Damage, fallout and crater live here; everything
+-- that is only seen or heard comes from nuke_effects.build.
+local function impact(tier)
+    local mk2 = tier == 2
+    local suffix = mk2 and "-mk2" or ""
+    local blast_radius = mk2 and BLAST_RADIUS * MK2 or BLAST_RADIUS
+    local fallout_radius = mk2 and FALLOUT_RADIUS * MK2 or FALLOUT_RADIUS
+    local duration = mk2 and shared.MK2_CLOUD_DURATION or shared.MK1_CLOUD_DURATION
+    local damage = BLAST_DAMAGE * (mk2 and MK2 or 1)
 
--- Factorio 2.0 requires animation flags to be a list; the vanilla nuke-explosion
--- prototype still has them as a bare string, so normalize on load. The mushroom
--- cloud itself is kept at native scale - a previous 0.7x downscale turned the
--- already-faint draw_as_glow sprite into an indistinct smear that didn't read as
--- an atomic bomb.
-local function normalize_flags(anim)
-    if anim.flags and type(anim.flags) == "string" then
-        anim.flags = { anim.flags }
-    end
-    if anim.hr_version then
-        normalize_flags(anim.hr_version)
-    end
-end
-
-if source_name == "nuke-explosion" and explosion.animations then
-    if explosion.animations.layers then
-        for _, layer in pairs(explosion.animations.layers) do
-            normalize_flags(layer)
-        end
-    elseif explosion.animations.filename or explosion.animations.stripes or explosion.animations.filenames then
-        normalize_flags(explosion.animations)
-    else
-        -- Assume it's a list of variations
-        for _, anim in pairs(explosion.animations) do
-            if type(anim) == "table" then
-                normalize_flags(anim)
-            end
-        end
-    end
-end
-
-local function remove_smoke_effects(effects)
-    if not effects then return nil end
-    if effects.type then effects = {effects} end
-    local cleaned = {}
-    for _, effect in pairs(effects) do
-        local drop = false
-        if effect.type == "create-entity" and effect.entity_name and string.find(effect.entity_name, "smoke") then
-            drop = true
-        elseif effect.type == "create-trivial-smoke" and effect.smoke_name and string.find(effect.smoke_name, "smoke") then
-            drop = true
-        end
-
-        if not drop then
-            if effect.type == "nested-result" and effect.action and effect.action.action_delivery then
-                effect.action.action_delivery.target_effects = remove_smoke_effects(effect.action.action_delivery.target_effects)
-            end
-            if effect.action_delivery then
-                effect.action_delivery.target_effects = remove_smoke_effects(effect.action_delivery.target_effects)
-            end
-            table.insert(cleaned, effect)
-        end
-    end
-    return cleaned
-end
-
--- Strip smoke from explosion effects entirely (no blue lingering smoke)
-explosion.smoke = nil
-if explosion.created_effect then
-    explosion.created_effect = remove_smoke_effects(explosion.created_effect)
-end
-
--- Shockwave ring - the single biggest visual cue that reads as "atomic bomb"
--- rather than a regular explosion. Previously only the MK2 shell had one.
-local shockwave_source = data.raw["explosion"]["atomic-nuke-shockwave"]
-local shockwave_name = nil
-if shockwave_source then
-    local mk1_shockwave = table.deepcopy(shockwave_source)
-    mk1_shockwave.name = "uranium-artillery-shockwave"
-    data:extend({mk1_shockwave})
-    shockwave_name = mk1_shockwave.name
-end
-
--- Green-tinted billowing smoke puffs, standing in for the lingering vanilla
--- smoke that earlier versions stripped out entirely along with everything else.
-local smoke_puff_source = data.raw["explosion"]["atomic-fire-smoke"]
-local smoke_puff_name = nil
-if smoke_puff_source then
-    local smoke_puff = table.deepcopy(smoke_puff_source)
-    smoke_puff.name = "uranium-radiation-smoke-puff"
-    if smoke_puff.animations and smoke_puff.animations[1] then
-        smoke_puff.animations[1].tint = {r = 0.4, g = 1, b = 0.4, a = 0.5}
-    end
-    data:extend({smoke_puff})
-    smoke_puff_name = smoke_puff.name
-end
-
--- Update projectile action to use new effects
-projectile.action = {
-    type = "direct",
-    action_delivery = {
-        type = "instant",
-        target_effects = {
-            {
-                type = "create-entity",
-                entity_name = "uranium-artillery-explosion"
-            },
-            {
-                type = "create-entity",
-                entity_name = "uranium-radiation-cloud",
-                offset_deviation = {{-0.5, -0.5}, {0.5, 0.5}}
-            },
-            {
-                type = "script",
-                effect_id = "uranium-cloud-created"
-            },
-            {
-                type = "create-entity",
-                entity_name = "uranium-radiation-glow", -- The glowing crater effect
-                offset_deviation = {{-0.5, -0.5}, {0.5, 0.5}}
-            },
-            {
-                type = "set-tile",
-                tile_name = "nuclear-ground",
-                radius = BLAST_RADIUS,
-                apply_projection = false,
-                tile_collision_mask = { layers = { ["water_tile"] = true } }
-            },
-            {
-                type = "nested-result",
-                action = {
-                    type = "area",
-                    radius = BLAST_RADIUS, -- Configurable radius
-                    action_delivery = {
-                        type = "instant",
-                        target_effects = {
-                            {
-                                type = "damage",
-                                damage = {amount = settings.startup["uranium-artillery-damage"].value / 2, type = "physical"} -- Split damage
-                            },
-                            {
-                                type = "damage",
-                                damage = {amount = settings.startup["uranium-artillery-damage"].value / 2, type = "explosion"}
-                            }
-                        }
+    local target_effects = {
+        {
+            type = "create-entity",
+            entity_name = "uranium-radiation-cloud" .. suffix,
+            offset_deviation = {{-0.5, -0.5}, {0.5, 0.5}}
+        },
+        {
+            type = "script",
+            effect_id = "uranium-cloud-created" .. suffix
+        },
+        {
+            type = "create-entity",
+            entity_name = "uranium-radiation-glow" .. suffix, -- The glowing crater
+            offset_deviation = {{-0.5, -0.5}, {0.5, 0.5}}
+        },
+        {
+            type = "set-tile",
+            tile_name = "nuclear-ground",
+            radius = blast_radius,
+            apply_projection = false,
+            tile_collision_mask = { layers = { ["water_tile"] = true } }
+        },
+        {
+            type = "nested-result",
+            action = {
+                type = "area",
+                radius = blast_radius,
+                action_delivery = {
+                    type = "instant",
+                    target_effects = {
+                        -- Split evenly so neither resistance type shrugs it off
+                        {type = "damage", damage = {amount = damage / 2, type = "physical"}},
+                        {type = "damage", damage = {amount = damage / 2, type = "explosion"}},
                     }
                 }
             }
-        }
+        },
+        {
+            type = "camera-effect",
+            duration = mk2 and 90 or 60,
+            ease_in_duration = 5,
+            ease_out_duration = mk2 and 90 or 60,
+            delay = 0,
+            strength = mk2 and 6 or 3.5,
+            full_strength_max_distance = mk2 and 200 or 80,
+            max_distance = mk2 and 800 or 300
+        },
     }
-}
+    if mk2 then
+        -- Like the atomic bomb: the endgame shell levels cliffs at ground zero.
+        table.insert(target_effects, 1, {type = "destroy-cliffs", radius = math.min(blast_radius, 15), explosion_at_trigger = "explosion"})
+    end
 
-if shockwave_name then
-    table.insert(projectile.action.action_delivery.target_effects, {type = "create-entity", entity_name = shockwave_name})
+    for _, effect in pairs(nuke_effects.build(suffix, blast_radius, fallout_radius, duration, mk2)) do
+        table.insert(target_effects, effect)
+    end
+    return {type = "direct", action_delivery = {type = "instant", target_effects = target_effects}}
 end
-if smoke_puff_name then
-    table.insert(projectile.action.action_delivery.target_effects, {
-        type = "create-entity",
-        entity_name = smoke_puff_name,
-        repeat_count = 6,
-        offset_deviation = {{-3, -3}, {3, 3}}
-    })
-end
-table.insert(projectile.action.action_delivery.target_effects, {
-    type = "camera-effect",
-    duration = 60,
-    ease_in_duration = 5,
-    ease_out_duration = 60,
-    delay = 0,
-    strength = 3,
-    full_strength_max_distance = 80,
-    max_distance = 300
-})
 
-data:extend({projectile, cloud, explosion})
+projectile.action = impact(1)
 
--- High-yield projectile (~3x atomic bomb equivalent)
+-- High-yield projectile
 local projectile_mk2 = table.deepcopy(projectile)
 projectile_mk2.name = "uranium-artillery-projectile-mk2"
 projectile_mk2.map_color = {r = 0.1, g = 1, b = 0.3}
-
 if projectile_mk2.picture then
     projectile_mk2.picture.tint = {r = 0.3, g = 1, b = 0.3}
     projectile_mk2.picture.scale = (projectile_mk2.picture.scale or 1) * 1.5 -- Larger, like the atomic projectile
@@ -512,6 +319,7 @@ end
 if projectile_mk2.shadow then
     projectile_mk2.shadow.scale = (projectile_mk2.shadow.scale or 1) * 1.5
 end
+projectile_mk2.action = impact(2)
 
 -- Custom muzzle flash for uranium artillery
 local muzzle_flash = {
@@ -535,101 +343,7 @@ local muzzle_flash = {
     smoke = "smoke-fast"
 }
 
--- Increase blast radius and damage, and add stacked nuclear explosions
-projectile_mk2.action = table.deepcopy(projectile.action)
-local mk2_effects = projectile_mk2.action.action_delivery.target_effects
--- Increase ground effects radius
-for _, effect in pairs(mk2_effects) do
-    if effect.type == "create-entity" and effect.entity_name == "uranium-radiation-cloud" then
-        effect.entity_name = "uranium-radiation-cloud-mk2"
-    elseif effect.type == "create-entity" and effect.entity_name == "uranium-radiation-glow" then
-        effect.entity_name = "uranium-radiation-glow-mk2"
-    elseif effect.type == "create-entity" and effect.entity_name == "uranium-artillery-shockwave" then
-        effect.entity_name = "uranium-artillery-shockwave-mk2" -- prototype created below
-    elseif effect.type == "create-entity" and effect.entity_name == "uranium-radiation-smoke-puff" then
-        effect.repeat_count = (effect.repeat_count or 1) * 2
-        effect.offset_deviation = {{-3 * MK2, -3 * MK2}, {3 * MK2, 3 * MK2}}
-    elseif effect.type == "camera-effect" then
-        effect.strength = effect.strength * 1.7
-        effect.full_strength_max_distance = effect.full_strength_max_distance * MK2
-        effect.max_distance = effect.max_distance * MK2
-    elseif effect.type == "script" and effect.effect_id == "uranium-cloud-created" then
-        effect.effect_id = "uranium-cloud-created-mk2"
-    elseif effect.type == "set-tile" and effect.radius then
-        effect.radius = effect.radius * MK2 -- triple radius vs base
-    elseif effect.type == "nested-result" and effect.action and effect.action.radius then
-        effect.action.radius = effect.action.radius * MK2 -- triple blast radius
-        local te = effect.action.action_delivery.target_effects
-        if te then
-            for _, damage_effect in pairs(te) do
-                if damage_effect.damage and damage_effect.damage.amount then
-                    damage_effect.damage.amount = damage_effect.damage.amount * MK2
-                end
-            end
-        end
-    end
-end
-
--- Create custom scaled nuclear explosion for MK2
-local mk2_explosion = table.deepcopy(data.raw["explosion"][source_name])
-mk2_explosion.name = "uranium-artillery-explosion-mk2"
-mk2_explosion.smoke = nil -- remove default smoke hookup
-
--- Scale all explosion visuals to match MK2 size (3x larger)
-if mk2_explosion.animations then
-    recursive_scale(mk2_explosion.animations, MK2)
-end
-if mk2_explosion.light then
-    mk2_explosion.light.size = (mk2_explosion.light.size or 50) * MK2
-    mk2_explosion.light.intensity = (mk2_explosion.light.intensity or 1) * 1.5
-end
--- Enhanced sound (louder, more simultaneous)
-if mk2_explosion.sound then
-    if mk2_explosion.sound.aggregation then
-        mk2_explosion.sound.aggregation.max_count = (mk2_explosion.sound.aggregation.max_count or 1) * MK2
-    end
-    if mk2_explosion.sound.audible_distance_modifier then
-        mk2_explosion.sound.audible_distance_modifier = mk2_explosion.sound.audible_distance_modifier * 2
-    end
-    if mk2_explosion.sound.variations then
-        for _, variation in pairs(mk2_explosion.sound.variations) do
-            if variation.volume then
-                variation.volume = variation.volume * 1.3
-            end
-        end
-    end
-end
-if mk2_explosion.created_effect then
-    mk2_explosion.created_effect = remove_smoke_effects(mk2_explosion.created_effect)
-end
-
--- Scaled-up shockwave prototype for MK2. The reference to it in mk2_effects is
--- already present via the loop above, which renames the inherited MK1 entry
--- instead of adding a second one.
-local shockwave = data.raw["explosion"]["atomic-nuke-shockwave"]
-if shockwave then
-    local mk2_shockwave = table.deepcopy(shockwave)
-    mk2_shockwave.name = "uranium-artillery-shockwave-mk2"
-    recursive_scale(mk2_shockwave.animations, MK2)
-    if mk2_shockwave.light then
-        mk2_shockwave.light.size = (mk2_shockwave.light.size or 50) * MK2
-    end
-    if mk2_shockwave.sound and mk2_shockwave.sound.aggregation then
-        mk2_shockwave.sound.aggregation.max_count = (mk2_shockwave.sound.aggregation.max_count or 1) * 2
-    end
-    data:extend({mk2_shockwave})
-end
-
--- Use the scaled explosion for MK2 projectile, replacing the inherited MK1-scale
--- one instead of stacking both clouds on top of each other.
-for i = #mk2_effects, 1, -1 do
-    if mk2_effects[i].type == "create-entity" and mk2_effects[i].entity_name == "uranium-artillery-explosion" then
-        table.remove(mk2_effects, i)
-    end
-end
-table.insert(mk2_effects, 1, {type = "create-entity", entity_name = "uranium-artillery-explosion-mk2"})
-
-data:extend({projectile_mk2, mk2_explosion, muzzle_flash})
+data:extend({projectile, projectile_mk2, muzzle_flash})
 
 -- Define mutated units (Green versions)
 local unit_mapping = {}

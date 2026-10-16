@@ -17,9 +17,12 @@ data:extend({
     },
     {
         type = "double-setting",
-        name = "uranium-artillery-damage",
+        -- Renamed from uranium-artillery-damage when the default went from 2000
+        -- to 4000: Factorio keeps every stored setting value, so a changed
+        -- default would never have reached an existing install.
+        name = "uranium-artillery-blast-damage",
         setting_type = "startup",
-        default_value = 2000,
+        default_value = 4000,
         minimum_value = 1,
         order = "c"
     },
