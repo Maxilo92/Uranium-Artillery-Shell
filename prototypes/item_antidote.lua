@@ -1,8 +1,6 @@
 local antidote = {
     type = "capsule",
     name = "uranium-antidote",
-    icon = "__base__/graphics/icons/fluid/steam.png", -- Use steam icon as base
-    icon_size = 64,
     icons = {
         {
             icon = "__base__/graphics/icons/fluid/steam.png", -- Looks like a vial?
@@ -10,7 +8,7 @@ local antidote = {
             tint = {r=1, g=0.5, b=0.5} -- Reddish/Pink antidote
         }
     },
-    subgroup = "defensive-structure",
+    subgroup = "capsule",
     order = "z[antidote]",
     capsule_action = {
         type = "use-on-self",
@@ -21,7 +19,9 @@ local antidote = {
             cooldown = 30,
             range = 0,
             ammo_type = {
-                category = "capsule",
+                -- No `category` here: AmmoType has none. The ammo category of a
+                -- capsule comes from `ammo_category` on the attack parameters
+                -- above, which is already set.
                 target_type = "position",
                 action = {
                     type = "direct",

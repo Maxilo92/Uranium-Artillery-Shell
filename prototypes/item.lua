@@ -1,22 +1,22 @@
 local item = table.deepcopy(data.raw["ammo"]["artillery-shell"])
 item.name = "uranium-artillery-shell"
-item.order = "d[artillery-shell]-b[uranium]"
+-- Sort directly after the vanilla artillery shell ("d[explosive-cannon-shell]-d[artillery]")
+-- instead of ahead of it, which is where the old order string put them.
+item.order = "d[explosive-cannon-shell]-e[artillery-uranium]"
 
 -- Use custom icon
 item.icon = "__Uranium-Artillery-Shell__/graphics/uranium-artillery-projectile-mk1.png"
 item.icon_size = 64
 
--- Point to the new projectile
+-- Point to the new projectile. The green map trace lives on the projectile
+-- prototype itself (map_color); the delivery has no such property.
 item.ammo_type.action.action_delivery.projectile = "uranium-artillery-projectile"
 
--- Custom flare effect on map
-if item.ammo_type.action.action_delivery then
-    item.ammo_type.action.action_delivery.map_color = {r=0.2, g=1, b=0.2}
-    item.ammo_type.action.action_delivery.source_effects = {
-        type = "create-explosion",
-        entity_name = "uranium-artillery-cannon-muzzle-flash"
-    }
-end
+-- Green muzzle flash when the turret fires
+item.ammo_type.action.action_delivery.source_effects = {
+    type = "create-explosion",
+    entity_name = "uranium-artillery-cannon-muzzle-flash"
+}
 
 data:extend({item})
 
@@ -44,18 +44,14 @@ local dense_casing = {
 -- High-yield artillery shell (~3x atomic bomb strength)
 local mk2 = table.deepcopy(data.raw["ammo"]["artillery-shell"])
 mk2.name = "uranium-artillery-shell-mk2"
-mk2.order = "d[artillery-shell]-c[uranium-mk2]"
+mk2.order = "d[explosive-cannon-shell]-f[artillery-uranium-mk2]"
 mk2.icon = "__Uranium-Artillery-Shell__/graphics/uranium-artillery-projectile-mk2.png"
 mk2.icon_size = 64
 mk2.ammo_type.action.action_delivery.projectile = "uranium-artillery-projectile-mk2"
 
--- Custom flare effect on map
-if mk2.ammo_type.action.action_delivery then
-    mk2.ammo_type.action.action_delivery.map_color = {r=0.1, g=1, b=0.3}
-    mk2.ammo_type.action.action_delivery.source_effects = {
-        type = "create-explosion",
-        entity_name = "uranium-artillery-cannon-muzzle-flash"
-    }
-end
+mk2.ammo_type.action.action_delivery.source_effects = {
+    type = "create-explosion",
+    entity_name = "uranium-artillery-cannon-muzzle-flash"
+}
 
 data:extend({rad_core, dense_casing, mk2})

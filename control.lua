@@ -1,625 +1,490 @@
--- Initialize globals and register command to toggle debug overlays
-script.on_init(function()
-    if not global then global = {} end
-    global.cloud_overlays = global.cloud_overlays or {}
-    global.debug_enabled = global.debug_enabled or false
-    global.entity_mutations = global.entity_mutations or {} -- Track mutation timing to prevent race conditions
-    global.radiation_targets = global.radiation_targets or {} -- Track sticker application ticks for decay logic
-    global.player_radiation_glows = global.player_radiation_glows or {} -- Track player radiation glow rendering IDs
-end)
+local shared = require("shared")
 
--- Ensure globals exist after configuration changes or save loads
-script.on_configuration_changed(function(_)
-    if not global then global = {} end
-    global.cloud_overlays = global.cloud_overlays or {}
-    global.debug_enabled = global.debug_enabled or false
-    global.entity_mutations = global.entity_mutations or {} -- Track mutation timing to prevent race conditions
-    global.radiation_targets = global.radiation_targets or {} -- Track sticker application ticks for decay logic
-    global.player_radiation_glows = global.player_radiation_glows or {} -- Track player radiation glow rendering IDs
-end)
+local STICKER = shared.STICKER_NAME
+local MOD_NAME = "Uranium-Artillery-Shell"
 
-commands.add_command("uranium-debug", "Enable debug overlays (on/off/toggle)", function(cmd)
-    if not global then global = {} end
-    global.cloud_overlays = global.cloud_overlays or {}
-    global.radiation_clouds = global.radiation_clouds or {}
-    global.debug_enabled = global.debug_enabled or false
-    local arg = (cmd.parameter or ""):lower()
-    if arg == "on" then
-        global.debug_enabled = true
-        game.print("[Uranium] Debug overlays: ON")
-        
-        -- Create overlays for all existing radiation clouds
-        for i = #global.radiation_clouds, 1, -1 do
-            local cloud = global.radiation_clouds[i]
-            local remaining_ticks = cloud.expires_tick - game.tick
-            if remaining_ticks > 0 then
-                local surface = game.surfaces[cloud.surface_index]
-                if surface then
-                    local circle_id = rendering.draw_circle{
-                        color = cloud.is_mk2 and {r=0.05, g=1, b=0.2, a=0.6} or {r=0.1, g=1, b=0.1, a=0.5},
-                        radius = cloud.radius,
-                        filled = false,
-                        surface = surface,
-                        target = cloud.position,
-                        time_to_live = remaining_ticks
-                    }
-                    
-                    local remaining_seconds = math.ceil(remaining_ticks / 60)
-                    local label = cloud.is_mk2 and "MK2 Radiation: " or "Radiation: "
-                    local color = cloud.is_mk2 and {r=0.2, g=1, b=0.4} or {r=0.6, g=1, b=0.6}
-                    local scale = cloud.is_mk2 and 1.4 or 1.2
-                    
-                    rendering.draw_text{
-                        text = label .. remaining_seconds .. "s",
-                        surface = surface,
-                        target = cloud.position,
-                        color = color,
-                        alignment = "center",
-                        vertical_alignment = "bottom",
-                        scale = scale,
-                        time_to_live = 60
-                    }
-                    
-                    table.insert(global.cloud_overlays, {
-                        circle_id = circle_id,
-                        expires_tick = cloud.expires_tick,
-                        surface_index = cloud.surface_index,
-                        position = cloud.position,
-                        is_mk2 = cloud.is_mk2
-                    })
-                end
-            else
-                -- Cloud expired, remove from tracking
-                table.remove(global.radiation_clouds, i)
-            end
+local PROCESS_INTERVAL = 60 -- radiation is applied once per second
+local DECAY_TICKS = 1800    -- fallout decays to MIN_DECAY over 30 seconds
+local MIN_DECAY = 0.2
+local MUTATION_COOLDOWN = 60
+
+-- The engine only attaches stickers to units, characters, cars and spider
+-- vehicles. Worms are turrets and nests are unit-spawners, so they can never
+-- carry radiation sickness - they are handled on contact instead of per second.
+local STICKABLE_TYPES = {
+    ["unit"] = true,
+    ["character"] = true,
+}
+
+-- Entity types that have "mutated-" counterparts.
+local MUTABLE_TYPES = {
+    ["unit"] = true,
+    ["turret"] = true,
+    ["unit-spawner"] = true,
+}
+
+local CONTACT_EFFECTS = {
+    ["uranium-radiation-contact"] = true,
+    ["uranium-radiation-contact-mk2"] = true,
+}
+
+local CLOUD_EFFECTS = {
+    ["uranium-cloud-created"] = false,
+    ["uranium-cloud-created-mk2"] = true,
+}
+
+--------------------------------------------------------------------------------
+-- storage
+--------------------------------------------------------------------------------
+
+-- storage.radiation_targets  [unit_number] = {entity = LuaEntity, applied_tick = uint}
+-- storage.radiation_clouds   array of {expires_tick, surface_index, position, radius, is_mk2, circle, label}
+-- storage.entity_mutations   [unit_number] = tick of the last mutation
+-- storage.character_glows    [unit_number] = LuaRenderObject
+-- storage.debug_enabled      bool
+local function init_storage()
+    storage.radiation_targets = storage.radiation_targets or {}
+    storage.radiation_clouds = storage.radiation_clouds or {}
+    storage.entity_mutations = storage.entity_mutations or {}
+    storage.character_glows = storage.character_glows or {}
+    if storage.debug_enabled == nil then
+        storage.debug_enabled = false
+    end
+end
+
+--------------------------------------------------------------------------------
+-- helpers
+--------------------------------------------------------------------------------
+
+local function has_radiation(entity)
+    local stickers = entity.stickers
+    if not stickers then return false end
+    for _, sticker in pairs(stickers) do
+        if sticker.valid and sticker.name == STICKER then
+            return true
         end
-    elseif arg == "off" then
-        global.debug_enabled = false
-        game.print("[Uranium] Debug overlays: OFF")
-        -- Clean up overlay tracking (rendered items are ephemeral and will expire)
-        global.cloud_overlays = {}
+    end
+    return false
+end
+
+local function destroy_glow(unit_number)
+    local glow = storage.character_glows[unit_number]
+    if glow then
+        if glow.valid then glow.destroy() end
+        storage.character_glows[unit_number] = nil
+    end
+end
+
+local function untrack(unit_number)
+    storage.radiation_targets[unit_number] = nil
+    destroy_glow(unit_number)
+end
+
+local function ensure_glow(character, unit_number)
+    local glow = storage.character_glows[unit_number]
+    if glow and glow.valid then return end
+    -- The render object is anchored to the character, so it follows it on its
+    -- own; no per-tick position update needed.
+    storage.character_glows[unit_number] = rendering.draw_circle{
+        color = {r = 0.2, g = 1, b = 0.2, a = 0.4},
+        radius = 0.8,
+        filled = true,
+        surface = character.surface,
+        target = character,
+        draw_on_ground = true,
+    }
+end
+
+local function cloud_style(is_mk2)
+    if is_mk2 then
+        return {r = 0.05, g = 1, b = 0.2, a = 0.6}, {r = 0.2, g = 1, b = 0.4}, 1.4, "MK2 Radiation: "
+    end
+    return {r = 0.1, g = 1, b = 0.1, a = 0.5}, {r = 0.6, g = 1, b = 0.6}, 1.2, "Radiation: "
+end
+
+local function destroy_overlay(cloud)
+    if cloud.circle then
+        if cloud.circle.valid then cloud.circle.destroy() end
+        cloud.circle = nil
+    end
+    if cloud.label then
+        if cloud.label.valid then cloud.label.destroy() end
+        cloud.label = nil
+    end
+end
+
+local function create_overlay(cloud, tick)
+    local surface = game.surfaces[cloud.surface_index]
+    if not surface then return end
+    local remaining = cloud.expires_tick - tick
+    if remaining <= 0 then return end
+
+    local circle_color, text_color, scale, label = cloud_style(cloud.is_mk2)
+    cloud.circle = rendering.draw_circle{
+        color = circle_color,
+        radius = cloud.radius,
+        filled = false,
+        surface = surface,
+        target = cloud.position,
+        time_to_live = remaining,
+    }
+    cloud.label = rendering.draw_text{
+        text = label .. math.ceil(remaining / 60) .. "s",
+        surface = surface,
+        target = cloud.position,
+        color = text_color,
+        alignment = "center",
+        vertical_alignment = "bottom",
+        scale = scale,
+        time_to_live = remaining,
+    }
+end
+
+--------------------------------------------------------------------------------
+-- mutation
+--------------------------------------------------------------------------------
+
+-- Replaces an irradiated entity with its "mutated-" variant. Returns the new
+-- entity, or nil when nothing was mutated.
+local function try_mutate(entity, unit_number, applied_tick, tick)
+    if string.find(entity.name, "^mutated%-") then return nil end
+
+    local new_name = "mutated-" .. entity.name
+    if not prototypes.entity[new_name] then return nil end
+
+    -- Guards against the same entity mutating twice in the same second.
+    local last_mutation = storage.entity_mutations[unit_number]
+    if last_mutation and tick - last_mutation < MUTATION_COOLDOWN then return nil end
+
+    local surface = entity.surface
+    local position = entity.position
+    local force = entity.force
+    local direction = entity.direction
+    local health_ratio = entity.health / entity.max_health
+
+    local new_entity = surface.create_entity{
+        name = new_name,
+        position = position,
+        direction = direction,
+        force = force,
+        fast_replace = true,
+        spill = false,
+        create_build_effect_smoke = false,
+    }
+    if not new_entity then
+        log("[Uranium] Failed to create " .. new_name .. " at (" .. position.x .. ", " .. position.y .. ")")
+        return nil
+    end
+
+    new_entity.health = new_entity.max_health * health_ratio
+
+    -- Remember the source so a failed destroy() cannot duplicate the entity by
+    -- mutating it a second time on the next pass.
+    storage.entity_mutations[unit_number] = tick
+    untrack(unit_number)
+    if entity.valid then entity.destroy() end
+
+    local new_id = new_entity.unit_number
+
+    -- Carry the radiation sickness over so the mutant keeps decaying.
+    if STICKABLE_TYPES[new_entity.type] then
+        surface.create_entity{name = STICKER, position = new_entity.position, target = new_entity}
+        if new_id then
+            storage.radiation_targets[new_id] = {entity = new_entity, applied_tick = applied_tick}
+        end
+    end
+
+    return new_entity
+end
+
+--------------------------------------------------------------------------------
+-- per-second processing
+--------------------------------------------------------------------------------
+
+local function apply_radiation_damage(entity, unit_number, percent)
+    if percent <= 0 then return end
+    local damage = entity.max_health * percent
+    if entity.health > damage then
+        entity.health = entity.health - damage
     else
-        global.debug_enabled = not global.debug_enabled
-        game.print("[Uranium] Debug overlays toggled: " .. (global.debug_enabled and "ON" or "OFF"))
-        
-        if global.debug_enabled then
-            -- Create overlays for existing clouds when toggling on
-            for i = #global.radiation_clouds, 1, -1 do
-                local cloud = global.radiation_clouds[i]
-                local remaining_ticks = cloud.expires_tick - game.tick
-                if remaining_ticks > 0 then
-                    local surface = game.surfaces[cloud.surface_index]
-                    if surface then
-                        local circle_id = rendering.draw_circle{
-                            color = cloud.is_mk2 and {r=0.05, g=1, b=0.2, a=0.6} or {r=0.1, g=1, b=0.1, a=0.5},
-                            radius = cloud.radius,
-                            filled = false,
-                            surface = surface,
-                            target = cloud.position,
-                            time_to_live = remaining_ticks
-                        }
-                        
-                        local remaining_seconds = math.ceil(remaining_ticks / 60)
-                        local label = cloud.is_mk2 and "MK2 Radiation: " or "Radiation: "
-                        local color = cloud.is_mk2 and {r=0.2, g=1, b=0.4} or {r=0.6, g=1, b=0.6}
-                        local scale = cloud.is_mk2 and 1.4 or 1.2
-                        
-                        rendering.draw_text{
-                            text = label .. remaining_seconds .. "s",
-                            surface = surface,
-                            target = cloud.position,
-                            color = color,
-                            alignment = "center",
-                            vertical_alignment = "bottom",
-                            scale = scale,
-                            time_to_live = 60
-                        }
-                        
-                        table.insert(global.cloud_overlays, {
-                            circle_id = circle_id,
-                            expires_tick = cloud.expires_tick,
-                            surface_index = cloud.surface_index,
-                            position = cloud.position,
-                            is_mk2 = cloud.is_mk2
-                        })
+        entity.die(entity.force)
+        untrack(unit_number)
+    end
+end
+
+local function process_targets(tick)
+    local targets = storage.radiation_targets
+    if not next(targets) then return end
+
+    local damage_percent = settings.global["uranium-radiation-damage-percent"].value / 100
+    local player_damage = settings.global["uranium-player-damage-enabled"].value
+    local mutation_enabled = settings.global["uranium-mutation-enabled"].value
+
+    -- Mutation inserts and removes entries, so iterate over a key snapshot
+    -- instead of the live table.
+    local ids, count = {}, 0
+    for unit_number in pairs(targets) do
+        count = count + 1
+        ids[count] = unit_number
+    end
+
+    for i = 1, count do
+        local unit_number = ids[i]
+        local entry = targets[unit_number]
+        local entity = entry and entry.entity
+
+        if not (entity and entity.valid) then
+            untrack(unit_number)
+        elseif not has_radiation(entity) then
+            untrack(unit_number)
+        else
+            local applied_tick = entry.applied_tick or tick
+            local decay = math.max(MIN_DECAY, 1 - (tick - applied_tick) / DECAY_TICKS)
+
+            if mutation_enabled and MUTABLE_TYPES[entity.type] then
+                local mutant = try_mutate(entity, unit_number, applied_tick, tick)
+                if mutant then
+                    entity = mutant
+                    unit_number = mutant.unit_number or unit_number
+                end
+            end
+
+            if entity.valid then
+                if entity.type == "character" then
+                    ensure_glow(entity, unit_number)
+                    if player_damage then
+                        apply_radiation_damage(entity, unit_number, damage_percent * decay)
                     end
                 else
-                    table.remove(global.radiation_clouds, i)
+                    apply_radiation_damage(entity, unit_number, damage_percent * decay)
                 end
             end
-        else
-            global.cloud_overlays = {}
         end
     end
-end)
+end
 
--- Clean up orphaned overlays when player leaves game (helps with memory cleanup)
-script.on_event(defines.events.on_player_left_game, function()
-    if global and global.cloud_overlays then
-        global.cloud_overlays = {}
-    end
-end)
+-- Nests carry no "breaths-air" flag, so the fallout trigger deliberately skips
+-- them - that filter is what keeps it from touching every chest and tree in
+-- range. They are picked up here instead: a handful per cloud, found with one
+-- type-filtered search.
+local function process_nests(tick)
+    local mutation_enabled = settings.global["uranium-mutation-enabled"].value
 
-script.on_event(defines.events.on_player_used_capsule, function(event)
-    local item = event.item
-    if item.name == "uranium-antidote" then
-        local player = game.get_player(event.player_index)
-        if player and player.character then
-            -- Remove the radiation sticker
-            if player.character.stickers then
-                for _, sticker in pairs(player.character.stickers) do
-                    if sticker.name == "uranium-radiation-sticker" then
-                        sticker.destroy()
-                    end
-                end
-            end
-            -- Remove radiation glow when cured
-            if global.player_radiation_glows[player.index] then
-                rendering.free(global.player_radiation_glows[player.index])
-                global.player_radiation_glows[player.index] = nil
-            end
-            if global.radiation_targets then
-                global.radiation_targets[player.character.unit_number] = nil
-            end
-            player.print({"message.cured"})
-        end
-    end
-end)
-
-script.on_event(defines.events.on_entity_damaged, function(event)
-    local entity = event.entity
-    if not (entity and entity.valid) then return end
-    if not global then global = {} end
-    global.radiation_targets = global.radiation_targets or {}
-    global.entity_mutations = global.entity_mutations or {}
-    -- Handle basic tracking for units, turrets, and spawners; heavy work moved to on_tick
-    if entity.type == "unit" or entity.type == "turret" or entity.type == "unit-spawner" then
-        local has_sticker = false
-        if entity.stickers then
-            for _, sticker in pairs(entity.stickers) do
-                if sticker.valid and sticker.name == "uranium-radiation-sticker" then
-                    has_sticker = true
-                    break
-                end
-            end
-        end
-        
-        if has_sticker then
-            -- Ensure target is tracked; actual processing is handled on on_tick
-            local unit_id = entity.unit_number
-            if unit_id then
-                global.radiation_targets = global.radiation_targets or {}
-                local entry = global.radiation_targets[unit_id]
-                if not entry then
-                    global.radiation_targets[unit_id] = { entity = entity, applied_tick = game.tick }
-                end
-            end
-        else
-            -- No sticker: clear decay tracking
-            if entity.unit_number and global.radiation_targets then
-                global.radiation_targets[entity.unit_number] = nil
-            end
-        end
-
-    -- Handle percentage damage for players
-    elseif entity.type == "character" then
-        if not settings.global["uranium-player-damage-enabled"].value then return end
-        
-        if event.damage_type.name == "acid" and (game.tick % 60 == 0) then
-            if entity.stickers then
-                local has_sticker = false
-                for _, sticker in pairs(entity.stickers) do
-                    if sticker.valid and sticker.name == "uranium-radiation-sticker" then
-                        has_sticker = true
-                        break
-                    end
-                end
-                
-                if has_sticker then
-                    -- Track sticker age for decay
-                    local unit_id = entity.unit_number
-                    local applied_tick = game.tick
-                    if unit_id then
-                        local entry = (global.radiation_targets or {})[unit_id]
-                        if entry and entry.applied_tick then
-                            applied_tick = entry.applied_tick
-                        else
-                            global.radiation_targets[unit_id] = {applied_tick = game.tick}
+    for _, cloud in pairs(storage.radiation_clouds) do
+        if cloud.expires_tick > tick then
+            local surface = game.surfaces[cloud.surface_index]
+            local force = cloud.force and game.forces[cloud.force]
+            if surface then
+                local nests = surface.find_entities_filtered{
+                    position = cloud.position,
+                    radius = cloud.radius,
+                    type = "unit-spawner",
+                }
+                for _, nest in pairs(nests) do
+                    if nest.valid then
+                        local target = nest
+                        if mutation_enabled then
+                            target = try_mutate(nest, nest.unit_number, tick, tick) or nest
+                        end
+                        if target.valid and force and cloud.contact_damage then
+                            target.damage(cloud.contact_damage, force, "acid")
                         end
                     end
-                    -- Deal percentage of max health as extra damage (use mod setting, scaled by decay)
-                    local age_ticks = game.tick - applied_tick
-                    local decay_factor = math.max(0.2, 1 - (age_ticks / 1800))
-                    local damage_percent = (settings.global["uranium-radiation-damage-percent"].value / 100) * decay_factor
-                    local damage_amount = entity.max_health * damage_percent
-                    if entity.health > damage_amount then
-                        entity.health = entity.health - damage_amount
-                    else
-                        entity.die(entity.force)
-                    end
-                else
-                    if entity.unit_number and global.radiation_targets then
-                        global.radiation_targets[entity.unit_number] = nil
-                    end
                 end
             end
         end
+    end
+end
+
+local function process_clouds(tick)
+    local clouds = storage.radiation_clouds
+    local debug_enabled = storage.debug_enabled
+
+    for i = #clouds, 1, -1 do
+        local cloud = clouds[i]
+        local remaining = cloud.expires_tick - tick
+        if remaining <= 0 then
+            destroy_overlay(cloud)
+            table.remove(clouds, i)
+        elseif debug_enabled then
+            if not (cloud.label and cloud.label.valid) then
+                destroy_overlay(cloud)
+                create_overlay(cloud, tick)
+            else
+                local _, _, _, label = cloud_style(cloud.is_mk2)
+                cloud.label.text = label .. math.ceil(remaining / 60) .. "s"
+            end
+        elseif cloud.circle or cloud.label then
+            destroy_overlay(cloud)
+        end
+    end
+end
+
+local function prune_mutation_history(tick)
+    for unit_number, mutation_tick in pairs(storage.entity_mutations) do
+        if tick - mutation_tick > MUTATION_COOLDOWN then
+            storage.entity_mutations[unit_number] = nil
+        end
+    end
+end
+
+local function prune_glows()
+    local targets = storage.radiation_targets
+    for unit_number, glow in pairs(storage.character_glows) do
+        if not glow.valid then
+            storage.character_glows[unit_number] = nil
+        elseif not targets[unit_number] then
+            glow.destroy()
+            storage.character_glows[unit_number] = nil
+        end
+    end
+end
+
+script.on_nth_tick(PROCESS_INTERVAL, function(event)
+    local tick = event.tick
+    process_targets(tick)
+    process_nests(tick)
+    process_clouds(tick)
+    prune_mutation_history(tick)
+    prune_glows()
+end)
+
+--------------------------------------------------------------------------------
+-- events
+--------------------------------------------------------------------------------
+
+script.on_init(init_storage)
+
+script.on_configuration_changed(function()
+    init_storage()
+    -- Versions before 0.2.0 kept their state in the pre-2.0 `global` table, which
+    -- Factorio no longer persists. Anything they drew is orphaned in the save, so
+    -- drop every render object owned by this mod and rebuild from storage.
+    for _, object in pairs(rendering.get_all_objects(MOD_NAME)) do
+        object.destroy()
+    end
+    storage.character_glows = {}
+    for _, cloud in pairs(storage.radiation_clouds) do
+        cloud.circle = nil
+        cloud.label = nil
     end
 end)
 
 script.on_event(defines.events.on_script_trigger_effect, function(event)
-    if not global then global = {} end
-    -- Mutate spawners when any entity is affected by the radiation cloud (independent of damage/resistance)
-    local contact_effects = {
-        ["uranium-radiation-contact"] = true,
-        ["uranium-radiation-contact-mk2"] = true,
-    }
-    if contact_effects[event.effect_id] then
-        local target = event.target_entity
-        if target and target.valid and target.type == "unit-spawner" then
-            local mutation_setting = settings.global["uranium-mutation-enabled"]
-            if mutation_setting and mutation_setting.value and not string.find(target.name, "^mutated%-") then
-                -- Check if this spawner mutated recently to prevent race condition with on_entity_damaged handler
-                local unit_id = target.unit_number
-                local last_mutation_tick = global.entity_mutations[unit_id] or 0
-                if game.tick - last_mutation_tick >= 60 then  -- Only allow mutations once per second
-                    local new_name = "mutated-" .. target.name
-                    if prototypes.entity[new_name] then
-                        local surface = target.surface
-                        local position = target.position
-                        local force = target.force
-                        local health_ratio = target.health / target.max_health
+    local effect_id = event.effect_id
 
-                        local new_entity = surface.create_entity{
-                            name = new_name,
-                            position = position,
-                            force = force,
-                            fast_replace = true,
-                            spill = false,
-                            create_build_effect_smoke = false
-                        }
-                        if new_entity then
-                            new_entity.health = new_entity.max_health * health_ratio
-                            -- Do not re-apply sticker to spawners (they do not accept stickers as targets)
-                            
-                            -- Track mutation and destroy old entity
-                            global.entity_mutations[unit_id] = game.tick
-                            if target.valid then target.destroy() end
-                        else
-                            -- Log error if entity creation failed
-                            log("[Uranium] Failed to create mutated spawner " .. new_name .. " at position (" .. position.x .. ", " .. position.y .. ")")
-                        end
-                    end
-                end
-            end
-        end
-        -- Track radiation target for periodic processing
+    if CONTACT_EFFECTS[effect_id] then
         local target = event.target_entity
-        if target and target.valid then
-            if not global.radiation_targets then global.radiation_targets = {} end
-            local unit_id = target.unit_number
-            if unit_id then
-                global.radiation_targets[unit_id] = { entity = target, applied_tick = game.tick }
-            end
+        if not (target and target.valid) then return end
+
+        local unit_number = target.unit_number
+        if not unit_number then return end
+
+        if STICKABLE_TYPES[target.type] then
+            -- Fresh exposure resets the decay timer. Everything else (damage,
+            -- mutation) happens in the once-per-second pass.
+            storage.radiation_targets[unit_number] = {entity = target, applied_tick = event.tick}
+        elseif MUTABLE_TYPES[target.type] and settings.global["uranium-mutation-enabled"].value then
+            -- Nests and worms cannot hold a sticker, so they would never be
+            -- picked up by the per-second pass. Mutate them on contact instead.
+            try_mutate(target, unit_number, event.tick, event.tick)
         end
         return
     end
 
-    -- Track radiation clouds (always, regardless of debug status)
-    if event.effect_id == "uranium-cloud-created" then
-        if not global then global = {} end
-        global.radiation_clouds = global.radiation_clouds or {}
-        global.cloud_overlays = global.cloud_overlays or {}
+    local is_mk2 = CLOUD_EFFECTS[effect_id]
+    if is_mk2 == nil then return end
 
-        local surface = game.surfaces[event.surface_index]
-        if not surface then return end
+    local surface = game.surfaces[event.surface_index]
+    if not surface then return end
 
-        local position = event.target_position or event.position or event.source_position
-        if not position then return end
+    local position = event.target_position or event.source_position
+    if not position then return end
 
-        local radius = settings.startup["uranium-artillery-radius"].value
-        local duration = 1800 -- MK1: 30 seconds
-        local expires_tick = game.tick + duration
-        
-        -- Always track cloud data
-        table.insert(global.radiation_clouds, {
-            expires_tick = expires_tick,
-            surface_index = event.surface_index,
-            position = position,
-            radius = radius,
-            is_mk2 = false
-        })
-        
-        -- Only create overlay if debug is enabled
-        if not global.debug_enabled then return end
+    -- Whoever fired the shell owns the fallout damage dealt to nests.
+    local source = event.source_entity
+    local force = (source and source.valid and source.force.name) or "player"
+    if not game.forces[force] then force = "player" end
 
-        local circle_id = rendering.draw_circle{
-            color = {r=0.1, g=1, b=0.1, a=0.5},
-            radius = radius,
-            filled = false,
-            surface = surface,
-            target = position,
-            time_to_live = duration
-        }
+    local fallout_radius = shared.fallout_radius()
+    local cloud = {
+        expires_tick = event.tick + (is_mk2 and shared.MK2_CLOUD_DURATION or shared.MK1_CLOUD_DURATION),
+        surface_index = event.surface_index,
+        position = position,
+        radius = is_mk2 and fallout_radius * shared.MK2_MULTIPLIER or fallout_radius,
+        is_mk2 = is_mk2,
+        force = force,
+        contact_damage = is_mk2 and shared.MK2_CONTACT_DAMAGE or shared.MK1_CONTACT_DAMAGE,
+    }
+    storage.radiation_clouds[#storage.radiation_clouds + 1] = cloud
 
-        -- Initial text (will be redrawn each second with TTL)
-        local initial_duration_seconds = math.ceil(duration / 60)
-        rendering.draw_text{
-            text = "Radiation: " .. initial_duration_seconds .. "s",
-            surface = surface,
-            target = position,
-            color = {r=0.6, g=1, b=0.6},
-            alignment = "center",
-            vertical_alignment = "bottom",
-            scale = 1.2,
-            time_to_live = 60
-        }
-
-        table.insert(global.cloud_overlays, {
-            circle_id = circle_id,
-            expires_tick = expires_tick,
-                surface_index = event.surface_index,
-                position = position
-        })
-    end
-    
-    -- Track MK2 radiation clouds (always, regardless of debug status)
-    if event.effect_id == "uranium-cloud-created-mk2" then
-        if not global then global = {} end
-        global.radiation_clouds = global.radiation_clouds or {}
-        global.cloud_overlays = global.cloud_overlays or {}
-
-        local surface = game.surfaces[event.surface_index]
-        if not surface then return end
-
-        local position = event.target_position or event.position or event.source_position
-        if not position then return end
-
-        local radius = settings.startup["uranium-artillery-radius"].value * 3 -- MK2 is 3x larger
-        local duration = 5400 -- 90 seconds
-        local expires_tick = game.tick + duration
-        
-        -- Always track cloud data
-        table.insert(global.radiation_clouds, {
-            expires_tick = expires_tick,
-            surface_index = event.surface_index,
-            position = position,
-            radius = radius,
-            is_mk2 = true
-        })
-        
-        -- Only create overlay if debug is enabled
-        if not global.debug_enabled then return end
-
-        local circle_id = rendering.draw_circle{
-            color = {r=0.05, g=1, b=0.2, a=0.6},
-            radius = radius,
-            filled = false,
-            surface = surface,
-            target = position,
-            time_to_live = duration
-        }
-
-        local initial_duration_seconds = 90
-        rendering.draw_text{
-            text = "MK2 Radiation: " .. initial_duration_seconds .. "s",
-            surface = surface,
-            target = position,
-            color = {r=0.2, g=1, b=0.4},
-            alignment = "center",
-            vertical_alignment = "bottom",
-            scale = 1.4,
-            time_to_live = 60
-        }
-
-        table.insert(global.cloud_overlays, {
-            circle_id = circle_id,
-            expires_tick = expires_tick,
-            surface_index = event.surface_index,
-            position = position,
-            is_mk2 = true
-        })
+    if storage.debug_enabled then
+        create_overlay(cloud, event.tick)
     end
 end)
 
--- Update debug overlay timers and player radiation glows
-script.on_event(defines.events.on_tick, function()
-    if not global then return end
-    -- Apply periodic radiation damage and mutations once per second for tracked targets
-    if global.radiation_targets and (game.tick % 60 == 0) then
-        -- Defensive: ensure table and iterate over a snapshot to avoid mutation issues
-        if type(global.radiation_targets) ~= "table" then
-            global.radiation_targets = {}
-        end
-        local snapshot = {}
-        for id, e in pairs(global.radiation_targets) do
-            snapshot[id] = e
-        end
-        for unit_id, entry in pairs(snapshot) do
-            local target = entry.entity
-            if target and target.valid then
-                -- Verify sticker still present; if not, stop tracking
-                local has_sticker = false
-                if target.stickers then
-                    for _, sticker in pairs(target.stickers) do
-                        if sticker.valid and sticker.name == "uranium-radiation-sticker" then
-                            has_sticker = true
-                            break
-                        end
-                    end
-                end
-                if not has_sticker then
-                    global.radiation_targets[unit_id] = nil
-                else
-                    -- Decay factor based on sticker age
-                    local applied_tick = entry.applied_tick or game.tick
-                    local age_ticks = game.tick - applied_tick
-                    local decay_factor = math.max(0.2, 1 - (age_ticks / 1800))
+script.on_event(defines.events.on_player_used_capsule, function(event)
+    if event.item.name ~= "uranium-antidote" then return end
 
-                    -- Mutation for units, turrets, spawners
-                    local mutation_setting = settings.global["uranium-mutation-enabled"]
-                    if mutation_setting and mutation_setting.value and (target.type == "unit" or target.type == "turret" or target.type == "unit-spawner") and not string.find(target.name, "^mutated%-") then
-                        local last_mutation_tick = (global.entity_mutations or {})[unit_id] or 0
-                        if game.tick - last_mutation_tick >= 60 then
-                            local new_name = "mutated-" .. target.name
-                            if prototypes.entity[new_name] then
-                                local surface = target.surface
-                                local position = target.position
-                                local force = target.force
-                                local health_ratio = target.health / target.max_health
-                                local new_entity = surface.create_entity{
-                                    name = new_name,
-                                    position = position,
-                                    force = force,
-                                    fast_replace = true,
-                                    spill = false,
-                                    create_build_effect_smoke = false
-                                }
-                                if new_entity then
-                                    new_entity.health = new_entity.max_health * health_ratio
-                                    if new_entity.type == "unit" or new_entity.type == "character" or new_entity.type == "turret" then
-                                        surface.create_entity{ name = "uranium-radiation-sticker", position = position, target = new_entity }
-                                    end
-                                    global.entity_mutations = global.entity_mutations or {}
-                                    global.entity_mutations[unit_id] = game.tick
-                                    if global.radiation_targets then global.radiation_targets[unit_id] = nil end
-                                    if target.valid then target.destroy() end
-                                    -- Replace tracking to new entity
-                                    local new_id = new_entity.unit_number
-                                    if new_id then
-                                        global.radiation_targets[new_id] = { entity = new_entity, applied_tick = applied_tick }
-                                    end
-                                    -- Proceed to damage phase on new entity
-                                    target = new_entity
-                                end
-                            end
-                        end
-                    end
+    local player = game.get_player(event.player_index)
+    local character = player and player.character
+    if not (character and character.valid) then return end
 
-                    -- Percentage damage application
-                    if target.valid then
-                        local damage_percent = (settings.global["uranium-radiation-damage-percent"].value / 100) * decay_factor
-                        local damage_amount = target.max_health * damage_percent
-                        if target.health > damage_amount then
-                            target.health = target.health - damage_amount
-                        else
-                            target.die(target.force)
-                            global.radiation_targets[unit_id] = nil
-                        end
-                    end
-                end
-            else
-                -- Clean up invalid
-                global.radiation_targets[unit_id] = nil
+    local stickers = character.stickers
+    if stickers then
+        for _, sticker in pairs(stickers) do
+            if sticker.valid and sticker.name == STICKER then
+                sticker.destroy()
             end
         end
     end
-    
-    -- Update debug overlay timers once per second
-    if global.cloud_overlays and (game.tick % 60 == 0) then
-        for i = #global.cloud_overlays, 1, -1 do
-            local o = global.cloud_overlays[i]
-            local remaining = math.max(0, math.ceil((o.expires_tick - game.tick) / 60))
-            if remaining <= 0 then
-                -- Let overlays expire naturally; just stop tracking
-                table.remove(global.cloud_overlays, i)
-            else
-                local surface = game.surfaces[o.surface_index]
-                if surface and o.position then
-                    local label = o.is_mk2 and "MK2 Radiation: " or "Radiation: "
-                    local color = o.is_mk2 and {r=0.2, g=1, b=0.4} or {r=0.6, g=1, b=0.6}
-                    local scale = o.is_mk2 and 1.4 or 1.2
-                    
-                    rendering.draw_text{
-                        text = label .. remaining .. "s",
-                        surface = surface,
-                        target = o.position,
-                        color = color,
-                        alignment = "center",
-                        vertical_alignment = "bottom",
-                        scale = scale,
-                        time_to_live = 60
-                    }
-                end
-            end
-        end
+
+    local unit_number = character.unit_number
+    if unit_number then
+        untrack(unit_number)
     end
-    
-    -- Update player radiation glows (every tick for smooth visual effect)
-    if global.player_radiation_glows then
-        for player_index, glow_id in pairs(global.player_radiation_glows) do
-            local player = game.get_player(player_index)
-            if player and player.character and player.character.valid then
-                -- Check if player still has radiation sticker
-                local has_sticker = false
-                if player.character.stickers then
-                    for _, sticker in pairs(player.character.stickers) do
-                        if sticker.valid and sticker.name == "uranium-radiation-sticker" then
-                            has_sticker = true
-                            break
-                        end
-                    end
-                end
-                
-                if has_sticker then
-                    -- Update glow position to follow player
-                    if rendering.is_valid(glow_id) then
-                        rendering.set_target(glow_id, player.character)
-                    else
-                        -- Glow was freed, recreate it using a green circle
-                        glow_id = rendering.draw_circle{
-                            color = {r=0.2, g=1, b=0.2, a=0.4},
-                            radius = 0.8,
-                            filled = true,
-                            surface = player.character.surface,
-                            target = player.character,
-                            draw_on_ground = true
-                        }
-                        global.player_radiation_glows[player_index] = glow_id
-                    end
-                else
-                    -- Player no longer has sticker, remove glow
-                    if rendering.is_valid(glow_id) then
-                        rendering.free(glow_id)
-                    end
-                    global.player_radiation_glows[player_index] = nil
-                end
-            else
-                -- Player invalid, cleanup
-                if rendering.is_valid(glow_id) then
-                    rendering.free(glow_id)
-                end
-                global.player_radiation_glows[player_index] = nil
-            end
-        end
-    end
-    
-    -- Create radiation glow for players that just got infected
-    for _, player in pairs(game.players) do
-        if player.character and player.character.valid then
-            local has_sticker = false
-            if player.character.stickers then
-                for _, sticker in pairs(player.character.stickers) do
-                    if sticker.valid and sticker.name == "uranium-radiation-sticker" then
-                        has_sticker = true
-                        break
-                    end
-                end
-            end
-            
-            if has_sticker and not global.player_radiation_glows[player.index] then
-                -- Create new glow for this player
-                local glow_id = rendering.draw_circle{
-                    color = {r=0.2, g=1, b=0.2, a=0.4},
-                    radius = 0.8,
-                    filled = true,
-                    surface = player.character.surface,
-                    target = player.character,
-                    draw_on_ground = true
-                }
-                global.player_radiation_glows[player.index] = glow_id
-            end
-        end
-    end
+
+    player.print({"message.cured"})
 end)
 
+--------------------------------------------------------------------------------
+-- debug command
+--------------------------------------------------------------------------------
+
+commands.add_command("uranium-debug", {"command-help.uranium-debug"}, function(command)
+    local player = command.player_index and game.get_player(command.player_index)
+    if player and not player.admin then
+        player.print({"message.uranium-debug-admin-only"})
+        return
+    end
+
+    local argument = (command.parameter or ""):lower()
+    if argument == "on" then
+        storage.debug_enabled = true
+    elseif argument == "off" then
+        storage.debug_enabled = false
+    else
+        storage.debug_enabled = not storage.debug_enabled
+    end
+
+    local tick = game.tick
+    for i = #storage.radiation_clouds, 1, -1 do
+        local cloud = storage.radiation_clouds[i]
+        if cloud.expires_tick <= tick then
+            destroy_overlay(cloud)
+            table.remove(storage.radiation_clouds, i)
+        elseif storage.debug_enabled then
+            destroy_overlay(cloud)
+            create_overlay(cloud, tick)
+        else
+            destroy_overlay(cloud)
+        end
+    end
+
+    local message = {storage.debug_enabled and "message.uranium-debug-on" or "message.uranium-debug-off"}
+    if player then
+        player.print(message)
+    else
+        game.print(message)
+    end
+end)

@@ -1,10 +1,11 @@
 {
   "name": "Uranium-Artillery-Shell",
-  "version": "0.1.10",
+  "version": "0.5.1",
   "title": "Uranium Artillery Shell",
   "author": "Maximilian Priesnitz",
   "factorio_version": "2.0",
   "dependencies": ["base >= 2.0.0"],
+  "homepage": "https://github.com/Maxilo92/Uranium-Artillery-Shell",
   "description": "Adds a uranium artillery shell that creates a lingering radiation field. Radiation damages units over time and can cause nests to mutate into stronger variants. Includes RadAway to cure radiation sickness. Mutation can be toggled in settings.",
   "thumbnail": "thumbnail.png"
 }

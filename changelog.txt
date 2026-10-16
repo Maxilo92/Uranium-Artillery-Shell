@@ -1,4 +1,143 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.5.1
+Date: 2026-10-13
+  Changes:
+    - Release for Factorio 2.0. Same content as 0.5.0, which is the Factorio 2.1 release: the mod
+      uses nothing that differs between the two versions.
+---------------------------------------------------------------------------------------------------
+Version: 0.5.0
+Date: 2026-08-30
+  Bugfixes:
+    - Mutated worms and nests now actually glow green in the dark. They carried a `light` property,
+      but neither turrets nor nests have one - the engine read it and threw it away. The glow is now
+      attached through `stateless_visualisation`, which every entity type supports.
+    - Mutated nests are now actually green. Their sprites moved into `graphics_set` in Factorio 2.0,
+      so the tinting code, which still looked for a top-level `animation`, had been running on
+      nothing since then: irradiated nests kept the ordinary orange colouring and were only
+      identifiable by their name.
+    - Uranium impacts no longer paint a cyan poison cloud. The radiation cloud is meant to be
+      invisible and let the crater glow and the on-screen fallout circle mark the area, but it
+      inherited poison-cloud's `created_effect`, which spawned 21 vanilla poison smoke puffs plus
+      the poison capsule explosion sound on top of every shell.
+  Changes:
+    - Removed prototype fields that Factorio silently ignores, found with
+      --check-unused-prototype-data: `spread_radius` on the radiation clouds (the fallout area is
+      set by the trigger radius alone), `limit_one_per_tile` and two dead animation flags on the
+      radiation fires, `category` inside the antidote's ammo type, and a stray `icon` on the MK2
+      technology that `icons` was already overriding. The mod now loads without a single unused-data
+      warning, on both the base game and Space Age.
+---------------------------------------------------------------------------------------------------
+Version: 0.4.0
+Date: 2026-08-30
+  Changes:
+    - Compatible with Factorio 2.1. The mod now declares factorio_version 2.1, which is what makes
+      it load at all - 2.1 refuses any mod still marked for 2.0, which is why it showed up disabled
+      after updating the game.
+    - No code changes were needed beyond that. Shell, fallout, radiation sickness and the mutation
+      of units, worms and nests were all verified working on 2.1.17, with and without Space Age.
+---------------------------------------------------------------------------------------------------
+Version: 0.3.0
+Date: 2026-08-30
+  Balancing:
+    - Research and recipe costs are now balanced separately for the base game and Space Age, because
+      the science tree those two builds present is not the same one.
+    - Base game is unchanged.
+    - Space Age: space-science-pack is no longer an endgame gate there (it moves to prerequisite
+      "space-platform", ahead of every planet), and the vanilla atomic bomb recipe goes from 30 to
+      100 uranium-235.
+      * MK1 research now mirrors the Space Age Artillery pack list (adds space and metallurgic
+        science) and rises from 2500 to 4000. It still lists Artillery as a prerequisite, so the
+        uranium shell can never be researched before the ordinary artillery shell.
+      * MK2 research moves from behind space science to behind cryogenic-science-pack (Aquilo) and
+        rises from 3000 to 6000.
+      * Every uranium amount in the recipes is scaled up ~3x to match the 100-uranium-235 atomic
+        bomb (structural inputs like steel, plastic and processing units are unchanged). A finished
+        MK2 shell is about 96 uranium-235 in total - roughly one atomic bomb, as in the base game.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.2.0
+Date: 2026-07-24
+  Bugfixes:
+    - Fixed the mod losing all of its state on save/load and desyncing in multiplayer: the runtime
+      still used the pre-2.0 "global" table, which Factorio 2.0 replaced with "storage".
+    - Fixed a hard crash whenever a player was irradiated. The player glow used rendering.free,
+      rendering.is_valid and rendering.set_target, all of which were removed in Factorio 2.0.
+    - Fixed players never catching radiation sickness at all. The sticker declared a
+      spread_fire_entity, which makes the engine treat it as a fire sticker and refuse to attach it
+      to characters - so player radiation, the player glow and RadAway had nothing to act on. The
+      entity it spread has been fully invisible and damage-free since 0.1.8, so nothing is lost.
+    - Fixed the radiation sticker being invisible: its visual was put in a "stickers" property,
+      which StickerPrototype does not have. It is now a proper animation, so irradiated units and
+      players are marked green again.
+    - Fixed the fallout pulsing twice per second instead of once, which doubled its damage: the
+      cloud set action_frequency, which smoke-with-trigger does not have, leaving the inherited
+      poison-cloud cooldown of 30 ticks in place.
+    - Fixed mutated enemies being resistant to the wrong damage type. They were given 90% poison
+      resistance "so they don't die instantly to the cloud", but 0.1.9 switched the fallout to acid
+      damage and the resistance was never updated, so it did nothing at all. It is now acid.
+    - Fixed the uranium shells sorting ahead of the vanilla artillery shell instead of after it.
+    - Fixed mutated worms being unreachable. Worms are turrets and nests are unit-spawners, and the
+      engine attaches stickers to neither, so the sticker-driven mutation could never fire for them.
+      Both now mutate on contact with the fallout ("Enable Alien Mutation" still turns this off).
+    - Fixed players taking radiation damage twice per second, and taking it even with
+      "Enable Player Radiation Damage" turned off.
+    - Fixed the custom shell graphics never being used - the artillery projectile prototype has a
+      "picture", not an "animation", so every sprite override silently did nothing.
+    - Fixed the green map trace: map_color belongs on the projectile, not on the trigger delivery.
+    - Fixed the MK2 shockwave never spawning; it looked for a prototype name that does not exist in
+      Factorio 2.0 (now "atomic-nuke-shockwave").
+    - Fixed the debug overlay drawing a circle that did not match the area the fallout actually
+      covers; blast and fallout radius are now derived from one shared definition.
+    - Fixed mutated worms having no name in any language ("Unknown key").
+    - Restored the contagion mechanic announced in 0.1.5: mutated enemies infect what they hit again.
+    - Fixed radiation clouds, mutation timestamps and player glows never being cleaned up, so the
+      save grew for as long as the game ran.
+  Balancing:
+    - Rebalanced every cost against the vanilla atomic bomb (30 uranium-235). The shells used to be
+      built almost entirely from nuclear waste: one artillery shell, one depleted fuel cell and
+      5 uranium-238 bought roughly nuke-tier damage for free.
+      * Uranium Artillery Shell now also needs 2 uranium-235, 10 uranium-238 and 5 explosives.
+      * Stabilized Radiation Core: 1 -> 10 uranium-235. Dense Uranium Casing: doubled.
+      * MK2 shell now needs 10 uranium-235 directly, so a finished MK2 works out to 32 uranium-235
+        in total - about one atomic bomb for a shell with three times its blast.
+    - RadAway cost 1 coal and 1 water barrel, which made the radiation mechanic free to ignore. It
+      is now 2 steel plate, 5 sulfur and 5 coal, roughly a poison capsule.
+    - Research cost: the MK1 technology was 25 units, less than a starter technology, for a nuclear
+      weapon. It is now 2500, between vanilla Artillery (2000) and the Atomic Bomb (5000). MK2 went
+      from 200 to 3000.
+    - The MK2 technology needed space science while nothing in its own prerequisite chain unlocked
+      it. It now lists space-science-pack as a prerequisite.
+    - Mutant decay is derived from max health instead of being a flat 0.005 per tick. That flat rate
+      killed a mutated small biter in 50 seconds and a behemoth in roughly 13 hours; measured in
+      game, mutants now die after 10-20 minutes regardless of size.
+
+  Changes:
+    - The fallout now only affects things that breathe. It used to run its area trigger over every
+      entity in range - in a measured test with 12594 entities an MK2 field cost 0.71 ms per tick,
+      now it costs 0.24 ms. Nests do not carry that flag and are handled separately, taking the same
+      damage and mutating exactly as before.
+    - As a result the lingering fallout no longer eats your own walls, chests and the trees around
+      the crater, and vehicles now shield their driver from it. The blast itself still damages
+      everything in its radius, unchanged.
+    - Radiation is now processed in a single once-per-second pass instead of in on_entity_damaged,
+      which fired for every point of damage dealt anywhere on the map.
+    - The debug overlay keeps one render object per cloud and updates its text, instead of creating
+      a fresh text object every second.
+    - /uranium-debug is now admin-only in multiplayer and has a localized help text.
+    - RadAway moved to the capsule subgroup so it sits next to the other capsules.
+    - Removed dead prototype code (unused explosion smoke, unreachable cloud animation blocks).
+
+---------------------------------------------------------------------------------------------------
+Version: 0.2.1
+Date: 2026-07-24
+  Changes:
+    - Reworked the explosion so MK1 actually reads as an atomic bomb instead of a faint smear: the
+      mushroom cloud is no longer downscaled to 70%, both MK1 and MK2 now get the nuclear shockwave
+      ring (previously MK2-only), green-tinted smoke puffs replace the vanilla smoke that used to be
+      stripped out entirely, and the impact now shakes the screen. Also fixed MK2 stacking a small
+      MK1-scale cloud underneath its own explosion.
+
+---------------------------------------------------------------------------------------------------
 Version: 0.1.10
 Date: 2025-12-20
   Major Features:
